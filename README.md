@@ -1,6 +1,6 @@
 # ⚽ Sportz: Real-Time Event Dashboard
 
-> **Live Production URL:** [https://sportz-frontend-main.vercel.app](https://sportz-rho.vercel.app) 
+> **Live Production URL:** [https://sportz-rho.vercel.app](https://sportz-rho.vercel.app) 
 
 ![CI/CD Pipeline](https://github.com/vpn-cli/sockets/actions/workflows/ci.yml/badge.svg)
 ![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
