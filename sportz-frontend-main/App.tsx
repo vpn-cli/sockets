@@ -43,11 +43,13 @@ const App: React.FC = () => {
         
         {/* Header Section */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-brand-yellow border-2 border-black rounded-2xl p-6 shadow-hard">
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-brand-dark mb-1">
-              Spotrz
-            </h1>
-            <p className="text-sm font-medium opacity-80">Real-time match data demo</p>
+          <div className="flex items-center gap-4">
+            <div className="text-5xl animate-bounce leading-none drop-shadow-md pb-1">⚽</div>
+            <div>
+              <h1 className="text-3xl font-black tracking-tight text-brand-dark mb-1">
+                Sportz
+              </h1>
+              <p className="text-sm font-medium opacity-80">Real-time match data demo</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <StatusIndicator status={status} />
