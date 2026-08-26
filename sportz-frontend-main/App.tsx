@@ -50,6 +50,7 @@ const App: React.FC = () => {
                 Sportz
               </h1>
               <p className="text-sm font-medium opacity-80">Real-time match data demo</p>
+            </div>
           </div>
           <div className="flex flex-col items-end gap-2">
             <StatusIndicator status={status} />
