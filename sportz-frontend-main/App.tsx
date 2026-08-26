@@ -3,11 +3,13 @@ import { useMatchData } from './hooks/useMatchData';
 import { MatchCard } from './components/MatchCard';
 import { LiveFeed } from './components/LiveFeed';
 import { StatusIndicator } from './components/StatusIndicator';
+import { LoadingScreen } from './components/LoadingScreen';
 import { API_BASE_URL, WS_BASE_URL } from './constants';
 
 const App: React.FC = () => {
   const pageSize = 6;
   const [currentPage, setCurrentPage] = useState(1);
+  const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const {
     matches,
     isLoading,
@@ -38,8 +40,15 @@ const App: React.FC = () => {
   }, [matches, currentPage, pageSize]);
 
   return (
-    <div className="min-h-screen p-4 md:p-8 font-sans">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <>
+      {showLoadingScreen && (
+        <LoadingScreen 
+          isLoading={isLoading} 
+          onComplete={() => setShowLoadingScreen(false)} 
+        />
+      )}
+      <div className="min-h-screen p-4 md:p-8 font-sans">
+        <div className="max-w-7xl mx-auto space-y-8">
         
         {/* Header Section */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-brand-yellow border-2 border-black rounded-2xl p-6 shadow-hard">
@@ -87,7 +96,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {isLoading && (
+            {!showLoadingScreen && isLoading && (
               <div className="p-12 text-center border-2 border-dashed border-gray-300 rounded-2xl">
                 <div className="animate-spin w-8 h-8 border-4 border-brand-yellow border-t-black rounded-full mx-auto mb-4"></div>
                 <p className="font-medium text-gray-500">Loading matches...</p>
@@ -176,6 +185,7 @@ const App: React.FC = () => {
         </footer>
       </div>
     </div>
+    </>
   );
 };
 
