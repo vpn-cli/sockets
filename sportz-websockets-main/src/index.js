@@ -34,9 +34,17 @@ const { broadcastMatchCreated, broadcastCommentary } = attachWebSocketServer(ser
 app.locals.broadcastMatchCreated = broadcastMatchCreated;
 app.locals.broadcastCommentary = broadcastCommentary;
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, async () => {
     const baseUrl = HOST === '0.0.0.0' ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
 
     console.log(`Server is running on ${baseUrl}`);
     console.log(`WebSocket Server is running on ${baseUrl.replace('http', 'ws')}/ws`);
+
+    // Automatically spawn the seed script in the background
+    const { spawn } = await import('child_process');
+    console.log("Starting background seed worker...");
+    spawn('node', ['src/seed/seed.js'], {
+        env: { ...process.env, API_URL: `http://127.0.0.1:${PORT}` },
+        stdio: 'inherit'
+    });
 });
