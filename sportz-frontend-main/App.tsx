@@ -165,32 +165,6 @@ const App: React.FC = () => {
           </aside>
 
         </div>
-
-        {/* Documentation / Verification Section */}
-        <section className="mt-12 border-t-2 border-gray-200 pt-8">
-          <div className="bg-white border-2 border-black rounded-2xl p-6">
-            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-              <span className="bg-black text-white w-6 h-6 flex items-center justify-center rounded-full text-xs">?</span>
-              Testing & Verification
-            </h3>
-            <div className="grid md:grid-cols-2 gap-8 text-sm text-gray-600">
-              <div>
-                <h4 className="font-bold text-black mb-2">Configuration</h4>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>REST URL: <code className="bg-gray-100 px-1 rounded">{API_BASE_URL}</code></li>
-                  <li>WS URL: <code className="bg-gray-100 px-1 rounded">{WS_BASE_URL}</code></li>
-                  <li>Modify these in <code className="bg-gray-100 px-1 rounded">constants.ts</code></li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold text-black mb-2">How to Verify</h4>
-                <p className="mb-2">1. Click the action button on any card (it shows "Watch Live" for live games).</p>
-                <p className="mb-2">2. The status indicator top-right will turn green.</p>
-                <p>3. Wait for <code className="text-xs bg-gray-100 p-0.5 border border-gray-300 rounded">score_update</code> or <code className="text-xs bg-gray-100 p-0.5 border border-gray-300 rounded">commentary</code> events from the server. The card score updates instantly, and the right panel fills with text.</p>
-              </div>
-            </div>
-          </div>
-        </section>
       </div>
     </div>
   );
