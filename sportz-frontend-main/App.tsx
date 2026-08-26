@@ -165,6 +165,12 @@ const App: React.FC = () => {
           </aside>
 
         </div>
+
+        {/* Professional Footer */}
+        <footer className="mt-12 border-t-2 border-gray-200 pt-8 pb-6 text-center text-sm text-gray-500 font-medium">
+          <p>Powered by Node.js, Express, WebSockets, and Drizzle ORM.</p>
+          <p className="mt-1">Real-time data feeds secured by Arcjet.</p>
+        </footer>
       </div>
     </div>
   );
