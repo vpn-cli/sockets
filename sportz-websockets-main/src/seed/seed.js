@@ -1,9 +1,9 @@
 import "dotenv/config";
 import fs from "fs/promises";
 
-const DELAY_MS = Number.parseInt(process.env.DELAY_MS || "250", 10);
-const NEW_MATCH_DELAY_MIN_MS = 2000;
-const NEW_MATCH_DELAY_MAX_MS = 3000;
+const DELAY_MS = Number.parseInt(process.env.DELAY_MS || "20", 10);
+const NEW_MATCH_DELAY_MIN_MS = 0;
+const NEW_MATCH_DELAY_MAX_MS = 0;
 const DEFAULT_MATCH_DURATION_MINUTES = Number.parseInt(
     process.env.SEED_MATCH_DURATION_MINUTES || "120",
     10,

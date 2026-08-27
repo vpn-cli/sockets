@@ -53,18 +53,20 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ isLoading, onCompl
     
     if (isLoading) {
       // Logic: Fake the loading buffer to handle a 2 minute cold start nicely without staring at 0%
+      // We want the loading to take roughly 10 seconds total (if actual data takes that long).
+      // We run at a 100ms interval (100 ticks in 10 seconds)
       interval = setInterval(() => {
         setProgress(prev => {
           if (prev < 80) {
-            // Load to 80% slower
-            return prev + Math.floor(Math.random() * 3) + 1;
+            // From 0 to 80 takes ~60 ticks (~6 seconds) -> average +1.3 per tick
+            return prev + (Math.random() > 0.3 ? 2 : 1);
           } else if (prev < 99) {
-            // Crawl from 80% to 99% (highly likely to add 0)
-            return prev + (Math.random() > 0.8 ? 1 : 0);
+            // From 80 to 99 takes ~40 ticks (~4 seconds) -> average +0.5 per tick
+            return prev + (Math.random() > 0.5 ? 1 : 0);
           }
           return prev;
         });
-      }, 450); // Slower interval
+      }, 100); 
     } else {
       // Actual data has loaded!
       setProgress(100);

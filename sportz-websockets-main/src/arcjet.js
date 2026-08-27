@@ -29,6 +29,12 @@ export function securityMiddleware() {
     return async (req, res, next) => {
         if(!httpArcjet) return next();
 
+        // Bypass Arcjet rate limiting for our internal background seed script
+        const isLocalhost = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+        if (isLocalhost) {
+            return next();
+        }
+
         try {
             const decision = await httpArcjet.protect(req);
 
