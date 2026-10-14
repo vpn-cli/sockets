@@ -24,6 +24,7 @@ Update this file after every completed feature. Any AI agent reading this should
 - [x] Live Updates for Matches & Commentary
 - [x] Global Real-time Score Updates (`score_update` broadcast)
 - [x] Connection state management (hooks & exponential backoff)
+- [x] WebSocket lifecycle stabilization (eliminated reconnect toggle loop, decoupled listener callbacks, safe unmount cleanup)
 - [x] Arcjet rate limiting & bot protection hardening (safe bypass in dev, relaxed WS thresholds)
 
 ### Phase 3 — UI Implementation & Interactive Polish

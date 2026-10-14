@@ -88,6 +88,7 @@ export const useMatchData = (): UseMatchData => {
     connectGlobal,
     subscribeMatch,
     unsubscribeMatch,
+    disconnect,
   } = useWebSocket(handleWSMessage);
 
   const loadMatches = useCallback(async () => {
@@ -173,7 +174,10 @@ export const useMatchData = (): UseMatchData => {
 
   useEffect(() => {
     connectGlobal();
-  }, [connectGlobal]);
+    return () => {
+      disconnect();
+    };
+  }, [connectGlobal, disconnect]);
 
   useEffect(() => {
     latestMatchIdRef.current = activeMatchId;
