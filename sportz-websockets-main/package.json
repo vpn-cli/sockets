@@ -17,15 +17,15 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@arcjet/inspect": "^1.0.0-beta.17",
-    "@arcjet/node": "^1.0.0-beta.17",
-    "apminsight": "^5.2.1",
+    "@arcjet/inspect": "^1.14.1",
+    "@arcjet/node": "^1.14.1",
+    "apminsight": "^5.6.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.4",
     "express": "^5.2.1",
     "pg": "^8.17.2",
-    "ws": "^8.19.0",
+    "ws": "^8.22.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {

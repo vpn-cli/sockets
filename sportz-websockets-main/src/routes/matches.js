@@ -1,9 +1,15 @@
 import { Router } from 'express';
-import {createMatchSchema, listMatchesQuerySchema} from "../validation/matches.js";
-import {matches} from "../db/schema.js";
-import {db} from "../db/db.js";
-import {getMatchStatus} from "../utils/match-status.js";
-import {desc} from "drizzle-orm";
+import {
+    createMatchSchema,
+    listMatchesQuerySchema,
+    matchIdParamSchema,
+    updateScoreSchema,
+    MATCH_STATUS
+} from "../validation/matches.js";
+import { matches } from "../db/schema.js";
+import { db } from "../db/db.js";
+import { getMatchStatus, syncMatchStatus } from "../utils/match-status.js";
+import { desc, eq } from "drizzle-orm";
 
 export const matchRouter = Router();
 
@@ -13,7 +19,7 @@ matchRouter.get('/', async (req, res) => {
     const parsed = listMatchesQuerySchema.safeParse(req.query);
 
     if (!parsed.success) {
-        return res.status(400).json({error: 'Invalid query.', details: parsed.error.issues });
+        return res.status(400).json({ error: 'Invalid query.', details: parsed.error.issues });
     }
 
     const limit = Math.min(parsed.data.limit ?? 50, MAX_LIMIT);
@@ -23,18 +29,19 @@ matchRouter.get('/', async (req, res) => {
             .select()
             .from(matches)
             .orderBy((desc(matches.createdAt)))
-            .limit(limit)
+            .limit(limit);
 
         res.json({ data });
     } catch (e) {
+        console.error('Failed to list matches:', e);
         res.status(500).json({ error: 'Failed to list matches.' });
     }
-})
+});
 
 matchRouter.post('/', async (req, res) => {
     const parsed = createMatchSchema.safeParse(req.body);
 
-    if(!parsed.success) {
+    if (!parsed.success) {
         return res.status(400).json({ error: 'Invalid payload.', details: parsed.error.issues });
     }
 
@@ -50,29 +57,30 @@ matchRouter.post('/', async (req, res) => {
             status: getMatchStatus(startTime, endTime),
         }).returning();
 
-        if(res.app.locals.broadcastMatchCreated) {
+        if (res.app.locals.broadcastMatchCreated) {
             res.app.locals.broadcastMatchCreated(event);
         }
 
         res.status(201).json({ data: event });
     } catch (e) {
-        res.status(500).json({ error: 'Failed to create match.', details: JSON.stringify(e) });
+        console.error('Failed to create match:', e);
+        res.status(500).json({ error: 'Failed to create match.', details: e?.message || 'Failed to create match.' });
     }
-})
+});
 
 matchRouter.patch('/:id/score', async (req, res) => {
     const paramsParsed = matchIdParamSchema.safeParse(req.params);
     if (!paramsParsed.success) {
         return res
             .status(400)
-            .json({ error: 'Invalid match id', details: formatZodError(paramsParsed.error) });
+            .json({ error: 'Invalid match id', details: paramsParsed.error.issues });
     }
 
     const bodyParsed = updateScoreSchema.safeParse(req.body);
     if (!bodyParsed.success) {
         return res
             .status(400)
-            .json({ error: 'Invalid payload', details: formatZodError(bodyParsed.error) });
+            .json({ error: 'Invalid payload', details: bodyParsed.error.issues });
     }
 
     const matchId = paramsParsed.data.id;
@@ -100,6 +108,11 @@ matchRouter.patch('/:id/score', async (req, res) => {
                 .where(eq(matches.id, matchId));
         });
 
+        if (existing.status === MATCH_STATUS.SCHEDULED) {
+            await db.update(matches).set({ status: MATCH_STATUS.LIVE }).where(eq(matches.id, matchId));
+            existing.status = MATCH_STATUS.LIVE;
+        }
+
         if (existing.status !== MATCH_STATUS.LIVE) {
             return res.status(409).json({ error: 'Match is not live' });
         }
@@ -122,6 +135,7 @@ matchRouter.patch('/:id/score', async (req, res) => {
 
         res.json({ data: updated });
     } catch (err) {
+        console.error('Failed to update score:', err);
         res.status(500).json({ error: 'Failed to update score' });
     }
 });

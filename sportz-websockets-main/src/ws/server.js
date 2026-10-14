@@ -1,5 +1,5 @@
-import {WebSocket, WebSocketServer} from 'ws';
-import {wsArcjet} from "../arcjet.js";
+import { WebSocket, WebSocketServer } from 'ws';
+import { wsArcjet, isLocalhostIp } from "../arcjet.js";
 
 const matchSubscribers = new Map();
 
@@ -89,7 +89,8 @@ export function attachWebSocketServer(server) {
             return;
         }
 
-        if (wsArcjet) {
+        const clientIp = req.socket.remoteAddress;
+        if (wsArcjet && !isLocalhostIp(clientIp)) {
             try {
                 const decision = await wsArcjet.protect(req);
 
@@ -104,9 +105,11 @@ export function attachWebSocketServer(server) {
                 }
             } catch (e) {
                 console.error('WS upgrade protection error', e);
-                socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
-                socket.destroy();
-                return;
+                if (process.env.NODE_ENV === 'production') {
+                    socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+                    socket.destroy();
+                    return;
+                }
             }
         }
 
@@ -133,7 +136,7 @@ export function attachWebSocketServer(server) {
 
         socket.on('close', () => {
             cleanupSubscriptions(socket);
-        })
+        });
 
         socket.on('error', console.error);
     });
@@ -144,7 +147,8 @@ export function attachWebSocketServer(server) {
 
             ws.isAlive = false;
             ws.ping();
-        })}, 30000);
+        });
+    }, 30000);
 
     wss.on('close', () => clearInterval(interval));
 
@@ -156,5 +160,10 @@ export function attachWebSocketServer(server) {
         broadcastToMatch(matchId, { type: 'commentary', data: comment });
     }
 
-    return { broadcastMatchCreated, broadcastCommentary };
+    function broadcastScoreUpdate(matchId, scoreData) {
+        broadcastToAll(wss, { type: 'score_update', matchId: Number(matchId), data: scoreData });
+    }
+
+    return { broadcastMatchCreated, broadcastCommentary, broadcastScoreUpdate };
 }
+
