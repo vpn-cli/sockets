@@ -69,4 +69,23 @@ Border: border-error-border
 Text: text-text-primary text-sm
 ```
 
+### EventSimulatorModal
+*Interactive recruiter & developer simulation modal for triggering live WebSocket events.*
+```text
+Container: fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm
+Card: relative w-full max-w-xl bg-white border-2 border-black rounded-2xl shadow-hard overflow-hidden
+Header: p-5 bg-brand-yellow border-b-2 border-black
+Action Buttons: border-2 border-black rounded-xl font-bold text-xs transition-all active:translate-y-0.5
+```
+
+### LiveFeedEventBadge
+*Event-specific pills for sports actions (Goals, Wickets, Boundaries, Bookings).*
+```text
+Goal: bg-emerald-100 text-emerald-900 border-emerald-600
+Wicket: bg-rose-100 text-rose-900 border-rose-600
+Six/Maximum: bg-purple-100 text-purple-900 border-purple-600
+Four/Boundary: bg-blue-100 text-blue-900 border-blue-600
+Card/Booking: bg-amber-100 text-amber-900 border-amber-600
+```
+
 *(More components will be added dynamically by the `/imprint` skill)*

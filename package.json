@@ -1,0 +1,14 @@
+{
+  "name": "sportz-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev.js",
+    "dev:backend": "npm --prefix sportz-websockets-main run dev",
+    "dev:frontend": "npm --prefix sportz-frontend-main run dev",
+    "build": "npm --prefix sportz-frontend-main run build",
+    "seed": "npm --prefix sportz-websockets-main run seed",
+    "db:migrate": "npm --prefix sportz-websockets-main run db:migrate"
+  }
+}
