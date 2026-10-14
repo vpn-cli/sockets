@@ -37,9 +37,6 @@ export const useMatchData = (): UseMatchData => {
   const handleWSMessage = useCallback((msg: WSMessage) => {
     switch (msg.type) {
       case "score_update":
-        if (!subscribedMatchIdsRef.current.has(String(msg.matchId))) {
-          return;
-        }
         setMatches((prevMatches) =>
           prevMatches.map((m) => {
             // Loose equality check for ID (string vs number)
@@ -49,6 +46,7 @@ export const useMatchData = (): UseMatchData => {
                 ...m,
                 homeScore: msg.data.homeScore,
                 awayScore: msg.data.awayScore,
+                status: 'live', // Updating score confirms match is active
               };
             }
             return m;
@@ -102,7 +100,7 @@ export const useMatchData = (): UseMatchData => {
       const nextMatches = data.data || [];
       const nextMatchIds = new Set(nextMatches.map((match) => String(match.id)));
       setMatches((prevMatches) => {
-        const prevById = new Map(
+        const prevById = new Map<string, Match>(
           prevMatches.map((match) => [String(match.id), match])
         );
         return nextMatches.map((match) => {

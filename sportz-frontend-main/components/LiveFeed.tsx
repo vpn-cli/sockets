@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Commentary } from '../types';
 
 interface LiveFeedProps {
@@ -25,7 +25,50 @@ const formatMetadata = (metadata?: Record<string, unknown>) => {
   }
 };
 
+const getEventBadge = (eventType?: string, message?: string) => {
+  const text = `${eventType || ''} ${message || ''}`.toLowerCase();
+
+  if (text.includes('goal')) {
+    return { icon: '⚽', label: 'GOAL', color: 'bg-emerald-100 text-emerald-900 border-emerald-600', isHighlight: true };
+  }
+  if (text.includes('wicket')) {
+    return { icon: '🏏', label: 'WICKET', color: 'bg-rose-100 text-rose-900 border-rose-600', isHighlight: true };
+  }
+  if (text.includes('six') || text.includes('maximum')) {
+    return { icon: '💥', label: '6 RUNS', color: 'bg-purple-100 text-purple-900 border-purple-600', isHighlight: true };
+  }
+  if (text.includes('four') || text.includes('boundary')) {
+    return { icon: '⚡', label: '4 RUNS', color: 'bg-blue-100 text-blue-900 border-blue-600', isHighlight: true };
+  }
+  if (text.includes('red card')) {
+    return { icon: '🟥', label: 'RED CARD', color: 'bg-red-100 text-red-900 border-red-600', isHighlight: true };
+  }
+  if (text.includes('booked') || text.includes('yellow card')) {
+    return { icon: '🟨', label: 'BOOKING', color: 'bg-amber-100 text-amber-900 border-amber-600', isHighlight: true };
+  }
+  if (text.includes('foul')) {
+    return { icon: '⚠️', label: 'FOUL', color: 'bg-orange-100 text-orange-900 border-orange-500', isHighlight: false };
+  }
+  if (text.includes('jumper') || text.includes('dunk') || text.includes('three-pointer')) {
+    return { icon: '🏀', label: 'POINTS', color: 'bg-amber-100 text-amber-900 border-amber-600', isHighlight: true };
+  }
+  if (eventType) {
+    return { icon: '📢', label: eventType.toUpperCase(), color: 'bg-brand-yellow text-black border-black', isHighlight: false };
+  }
+  return null;
+};
+
 export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoading }) => {
+  const [highlightsOnly, setHighlightsOnly] = useState(false);
+
+  const filteredMessages = useMemo(() => {
+    if (!highlightsOnly) return messages;
+    return messages.filter((msg) => {
+      const badge = getEventBadge(msg.eventType, msg.message);
+      return badge?.isHighlight;
+    });
+  }, [messages, highlightsOnly]);
+
   if (!isActive) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-gray-50 border-2 border-black rounded-2xl border-dashed">
@@ -42,82 +85,106 @@ export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoadin
 
   return (
     <div className="flex flex-col h-full bg-white border-2 border-black rounded-2xl overflow-hidden shadow-hard">
-      <div className="p-4 bg-brand-blue border-b-2 border-black flex justify-between items-center">
-        <h3 className="font-bold text-lg">Live Commentary</h3>
-        <span className="text-xs bg-white px-2 py-0.5 border border-black rounded-md font-medium">Real-time</span>
+      {/* Header */}
+      <div className="p-4 bg-brand-blue border-b-2 border-black flex flex-wrap justify-between items-center gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="font-bold text-lg">Live Commentary</h3>
+          <span className="text-xs bg-white px-2 py-0.5 border border-black rounded-full font-medium shadow-hard-sm">
+            {messages.length}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setHighlightsOnly(!highlightsOnly)}
+            className={`
+              text-xs px-2.5 py-1 rounded-full font-bold border border-black transition-all
+              ${highlightsOnly ? 'bg-brand-yellow text-black' : 'bg-white text-gray-700 hover:bg-gray-50'}
+            `}
+          >
+            {highlightsOnly ? '⭐ Highlights' : 'All Updates'}
+          </button>
+        </div>
       </div>
       
+      {/* Feed list */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
         {isLoading ? (
           <div className="text-center py-10 text-gray-400 italic">
             Loading commentary...
           </div>
-        ) : messages.length === 0 ? (
+        ) : filteredMessages.length === 0 ? (
           <div className="text-center py-10 text-gray-400 italic">
-            Waiting for updates...
+            {highlightsOnly ? 'No key highlights yet for this match.' : 'Waiting for live updates...'}
           </div>
         ) : (
-          messages.map((msg) => {
+          filteredMessages.map((msg) => {
             const timestamp = msg.createdAt ? new Date(msg.createdAt) : new Date();
             const minuteLabel = formatMinute(msg.minute);
             const metadataLabel = formatMetadata(msg.metadata);
+            const eventBadge = getEventBadge(msg.eventType, msg.message);
+            const isHighlight = eventBadge?.isHighlight;
+
             return (
-              <div key={msg.id} className="animate-in fade-in slide-in-from-top-2 duration-300">
-                <div className="flex gap-3">
-                  <div className="flex flex-col items-center gap-1 mt-1">
-                     <div className="w-2 h-2 rounded-full bg-brand-yellow border border-black"></div>
-                     <div className="w-0.5 h-full bg-gray-200"></div>
-                  </div>
-                  <div className="pb-4">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mb-1">
-                      <span className="font-mono text-gray-400">
-                        {timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              <div
+                key={msg.id}
+                className={`
+                  p-3 rounded-xl border-2 transition-all
+                  ${isHighlight 
+                    ? 'bg-amber-50/60 border-black shadow-hard-sm' 
+                    : 'bg-gray-50 border-gray-200'}
+                `}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 mb-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-gray-400 text-[11px]">
+                      {timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    {minuteLabel && (
+                      <span className="px-2 py-0.5 bg-black text-white rounded-full font-bold text-[10px]">
+                        {minuteLabel}
                       </span>
-                      {minuteLabel && (
-                        <span className="px-2 py-0.5 bg-gray-100 border border-gray-200 rounded-full font-semibold">
-                          {minuteLabel}
-                        </span>
-                      )}
-                      {msg.sequence !== undefined && msg.sequence !== null && (
-                        <span className="px-2 py-0.5 bg-gray-100 border border-gray-200 rounded-full font-semibold">
-                          Seq {msg.sequence}
-                        </span>
-                      )}
-                      {msg.period && (
-                        <span className="px-2 py-0.5 bg-gray-100 border border-gray-200 rounded-full">
-                          {msg.period}
-                        </span>
-                      )}
-                      {msg.eventType && (
-                        <span className="px-2 py-0.5 bg-brand-yellow border border-black rounded-full font-semibold uppercase tracking-wide text-[10px]">
-                          {msg.eventType}
-                        </span>
-                      )}
-                    </div>
-                    {(msg.actor || msg.team) && (
-                      <div className="text-xs font-semibold text-gray-700 mb-2">
-                        {msg.actor ? msg.actor : 'Unknown'}{msg.team ? ` · ${msg.team}` : ''}
-                      </div>
                     )}
-                    <p className="text-sm font-medium text-gray-800 leading-relaxed bg-gray-50 p-3 rounded-xl rounded-tl-none border border-gray-200">
-                      {msg.message}
-                    </p>
-                    {metadataLabel && (
-                      <div className="mt-2 text-[11px] font-mono text-gray-500 bg-white border border-gray-200 px-2 py-1 rounded">
-                        {metadataLabel}
-                      </div>
-                    )}
-                    {msg.tags && msg.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {msg.tags.map((tag) => (
-                          <span key={`${msg.id}-${tag}`} className="text-[10px] uppercase tracking-wide text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded-full">
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
+                    {msg.period && (
+                      <span className="px-2 py-0.5 bg-white border border-gray-300 rounded-full font-medium text-[10px]">
+                        {msg.period}
+                      </span>
                     )}
                   </div>
+                  {eventBadge && (
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-[10px] font-black ${eventBadge.color}`}>
+                      <span>{eventBadge.icon}</span>
+                      <span>{eventBadge.label}</span>
+                    </span>
+                  )}
                 </div>
+
+                {(msg.actor || msg.team) && (
+                  <div className="text-xs font-bold text-gray-800 mb-1 flex items-center gap-1.5">
+                    {msg.actor && <span>{msg.actor}</span>}
+                    {msg.team && (
+                      <span className="text-gray-500 font-medium">({msg.team})</span>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-sm font-medium text-gray-900 leading-snug">
+                  {msg.message}
+                </p>
+
+                {metadataLabel && (
+                  <div className="mt-2 text-[11px] font-mono text-gray-500 bg-white border border-gray-200 px-2 py-1 rounded">
+                    {metadataLabel}
+                  </div>
+                )}
+                {msg.tags && msg.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {msg.tags.map((tag) => (
+                      <span key={`${msg.id}-${tag}`} className="text-[10px] uppercase font-bold text-gray-600 bg-white border border-black/20 px-2 py-0.5 rounded-full">
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })
@@ -126,3 +193,4 @@ export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoadin
     </div>
   );
 };
+

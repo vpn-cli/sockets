@@ -1,0 +1,6 @@
+/* Base application styles */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+}

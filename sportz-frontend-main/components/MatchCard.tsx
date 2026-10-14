@@ -67,6 +67,15 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, isActive, onWatch, 
   // Format status for display (Capitalize first letter)
   const displayStatus = match.status.charAt(0).toUpperCase() + match.status.slice(1).toLowerCase();
 
+  const getSportIcon = (sport: string) => {
+    const s = sport.toLowerCase();
+    if (s.includes('football') || s.includes('soccer')) return '⚽';
+    if (s.includes('cricket')) return '🏏';
+    if (s.includes('basket')) return '🏀';
+    if (s.includes('tennis')) return '🎾';
+    return '🏆';
+  };
+
   return (
     <div className={`
       relative p-5 rounded-2xl border-2 border-black bg-white transition-all duration-200
@@ -74,8 +83,9 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, isActive, onWatch, 
     `}>
       {/* Header: Sport & Status */}
       <div className="flex justify-between items-start mb-4">
-        <span className="text-xs font-bold uppercase tracking-wider text-gray-500 border border-black rounded-full px-2 py-0.5">
-          {match.sport}
+        <span className="text-xs font-bold uppercase tracking-wider text-gray-700 bg-gray-50 border border-black rounded-full px-2.5 py-0.5 inline-flex items-center gap-1.5 shadow-sm">
+          <span>{getSportIcon(match.sport)}</span>
+          <span>{match.sport}</span>
         </span>
         <div className="flex items-center gap-2">
           {isLive && (
