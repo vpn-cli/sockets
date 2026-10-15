@@ -6,9 +6,9 @@ Update this file after every completed feature. Any AI agent reading this should
 
 ## Current Status
 
-**Phase:** Phase 3 & 4 — Real-time Polish & Deployment Readiness
-**Last completed:** Arcjet Security Hardening, Real-time Score Updates, Event Simulator Playground, Sport Filters & Rich Commentary Feed
-**Next:** Production Deployment (Backend & Frontend)
+**Phase:** Phase 3 & 4 — Real-time Polish, AI Integration & Containerization
+**Last completed:** Gemini AI Match Analyst, Bi-directional WebSocket Fan Reactions, Live Win Probability Meter, Autonomous Auto-Sim Ticker, Web Audio Sound FX, and Dockerization
+**Next:** Production Cloud Deployment (Vercel Frontend & Fly.io/Render Backend)
 
 ---
 
@@ -26,6 +26,7 @@ Update this file after every completed feature. Any AI agent reading this should
 - [x] Connection state management (hooks & exponential backoff)
 - [x] WebSocket lifecycle stabilization (eliminated reconnect toggle loop, decoupled listener callbacks, safe unmount cleanup)
 - [x] Arcjet rate limiting & bot protection hardening (safe bypass in dev, relaxed WS thresholds)
+- [x] Bi-Directional WebSocket Fan Reactions (`reaction` upstream events + `reaction_broadcast` / `reaction_snapshot`)
 
 ### Phase 3 — UI Implementation & Interactive Polish
 - [x] Match Card Components with sport emojis & live score pulse animations
@@ -35,9 +36,18 @@ Update this file after every completed feature. Any AI agent reading this should
 - [x] Real-time team search bar
 - [x] Interactive Event Simulator Playground (`EventSimulatorModal`) for recruiter demonstrations
 - [x] Connection Status Indicator & graceful error handling UI
+- [x] Live Win Probability & Momentum Swing Meter (`WinProbabilityMeter`)
+- [x] Bi-Directional Fan Reactions UI with floating emoji physics animations (`FanReactions`)
+- [x] Web Audio API Synthesizer sound effects for goals, wickets, and reactions with persistent mute toggle (`soundEffects.ts`)
+- [x] Autonomous Live Simulation Ticker (`Auto-Sim Demo`) for zero-click recruiter demonstration
 
-### Phase 4 — Hosting / Deployment
+### Phase 4 — AI Augmentation & Cloud / Container Deployment
 - [x] Database (PostgreSQL) configuration (Neon PostgreSQL deployed & migrated)
+- [x] Gemini 3.8 Flash AI Match Analyst (`/matches/:id/ai-insights`) with strict JSON schema and deterministic fallback
+- [x] AI Tactical Analysis presentation modal (`AiAnalystModal`)
+- [x] Backend Dockerfile (Node.js Alpine production container with health checks)
+- [x] Frontend Dockerfile (Multi-stage Node builder + Nginx Alpine runner with SPA caching and gzip)
+- [x] Root `docker-compose.yml` for unified one-command orchestration
 - [ ] Choose Hosting Platform (e.g. Render/Fly.io for backend, Vercel for frontend)
 - [ ] Backend Deployment
 - [ ] Frontend Deployment

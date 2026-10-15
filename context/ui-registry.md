@@ -88,4 +88,30 @@ Four/Boundary: bg-blue-100 text-blue-900 border-blue-600
 Card/Booking: bg-amber-100 text-amber-900 border-amber-600
 ```
 
+### FanReactions
+*Live bi-directional reaction buttons with real-time count badges and floating emoji physics animation.*
+```text
+Container: relative bg-white border-2 border-black rounded-xl p-3 shadow-hard-sm
+Reaction Buttons: px-2.5 py-1.5 bg-gray-50 hover:bg-brand-yellow/30 border-2 border-black rounded-lg text-xs font-bold transition-all active:translate-y-0.5 shadow-[1px_1px_0px_0px_#18181B]
+Floating Emoji: absolute text-2xl font-bold animate-float-up drop-shadow-md select-none
+```
+
+### WinProbabilityMeter
+*Dynamic two-tone momentum and win probability split progress bar with percentage tags.*
+```text
+Container: bg-white border-2 border-black rounded-xl p-3 shadow-hard-sm space-y-2
+Progress Bar: relative h-6 bg-gray-100 border-2 border-black rounded-lg overflow-hidden flex
+Home Fill: bg-brand-yellow text-brand-dark transition-all duration-700 ease-out
+Away Fill: bg-brand-blue text-brand-dark transition-all duration-700 ease-out
+```
+
+### AiAnalystModal
+*Gemini-powered tactical analysis presentation modal with structured sections.*
+```text
+Container: fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm
+Card: relative w-full max-w-2xl bg-white border-2 border-black rounded-2xl shadow-hard overflow-hidden
+Header: p-5 bg-brand-yellow border-b-2 border-black flex items-center justify-between
+Summary Card: p-4 bg-brand-blue/30 border-2 border-black rounded-xl space-y-1.5 shadow-hard-sm
+```
+
 *(More components will be added dynamically by the `/imprint` skill)*
