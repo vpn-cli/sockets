@@ -6,10 +6,11 @@ import {
     updateScoreSchema,
     MATCH_STATUS
 } from "../validation/matches.js";
-import { matches } from "../db/schema.js";
+import { matches, commentary } from "../db/schema.js";
 import { db } from "../db/db.js";
 import { getMatchStatus, syncMatchStatus } from "../utils/match-status.js";
 import { desc, eq } from "drizzle-orm";
+import { generateMatchInsights } from "../services/aiAnalyst.js";
 
 export const matchRouter = Router();
 
@@ -137,5 +138,40 @@ matchRouter.patch('/:id/score', async (req, res) => {
     } catch (err) {
         console.error('Failed to update score:', err);
         res.status(500).json({ error: 'Failed to update score' });
+    }
+});
+
+matchRouter.get('/:id/ai-insights', async (req, res) => {
+    const paramsParsed = matchIdParamSchema.safeParse(req.params);
+    if (!paramsParsed.success) {
+        return res.status(400).json({ error: 'Invalid match id', details: paramsParsed.error.issues });
+    }
+
+    const matchId = paramsParsed.data.id;
+
+    try {
+        const [match] = await db
+            .select()
+            .from(matches)
+            .where(eq(matches.id, matchId))
+            .limit(1);
+
+        if (!match) {
+            return res.status(404).json({ error: 'Match not found' });
+        }
+
+        const commentaryList = await db
+            .select()
+            .from(commentary)
+            .where(eq(commentary.matchId, matchId))
+            .orderBy(desc(commentary.createdAt))
+            .limit(20);
+
+        const insights = await generateMatchInsights(match, commentaryList);
+
+        res.json({ data: insights });
+    } catch (err) {
+        console.error('Failed to generate AI insights:', err);
+        res.status(500).json({ error: 'Failed to generate AI insights' });
     }
 });

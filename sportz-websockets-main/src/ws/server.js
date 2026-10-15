@@ -2,6 +2,8 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { wsArcjet, isLocalhostIp } from "../arcjet.js";
 
 const matchSubscribers = new Map();
+const matchReactions = new Map();
+const ALLOWED_EMOJIS = ['🔥', '👏', '⚡', '❤️', '⚽', '🎯'];
 
 function subscribe(matchId, socket) {
     if(!matchSubscribers.has(matchId)) {
@@ -72,7 +74,32 @@ function handleMessage(socket, data) {
         subscribe(matchId, socket);
         socket.subscriptions.add(matchId);
         sendJson(socket, { type: 'subscribed', matchId });
+        // Send initial reaction counts
+        sendJson(socket, {
+            type: 'reaction_snapshot',
+            matchId,
+            counts: matchReactions.get(matchId) || { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 }
+        });
         return;
+    }
+
+    if(message?.type === "reaction" && Number.isInteger(matchId)) {
+        const emoji = message?.emoji;
+        if (typeof emoji === 'string' && ALLOWED_EMOJIS.includes(emoji)) {
+            if (!matchReactions.has(matchId)) {
+                matchReactions.set(matchId, { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 });
+            }
+            const counts = matchReactions.get(matchId);
+            counts[emoji] = (counts[emoji] || 0) + 1;
+
+            broadcastToMatch(matchId, {
+                type: 'reaction_broadcast',
+                matchId,
+                emoji,
+                counts: { ...counts }
+            });
+            return;
+        }
     }
 
     if(message?.type === "unsubscribe" && Number.isInteger(matchId)) {
