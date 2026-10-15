@@ -5,6 +5,11 @@ import { LiveFeed } from './components/LiveFeed';
 import { StatusIndicator } from './components/StatusIndicator';
 import { LoadingScreen } from './components/LoadingScreen';
 import { EventSimulatorModal } from './components/EventSimulatorModal';
+import { AiAnalystModal } from './components/AiAnalystModal';
+import { WinProbabilityMeter } from './components/WinProbabilityMeter';
+import { FanReactions } from './components/FanReactions';
+import { isSoundEnabled, setSoundEnabled } from './services/soundEffects';
+import { postCommentary, updateMatchScore } from './services/api';
 
 const App: React.FC = () => {
   const pageSize = 6;
@@ -14,6 +19,9 @@ const App: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
+  const [isAutoSim, setIsAutoSim] = useState(false);
 
   const {
     matches,
@@ -25,11 +33,114 @@ const App: React.FC = () => {
     status,
     activeMatchId,
     newMatchesCount,
+    reactions,
+    recentReaction,
+    sendReaction,
     dismissNewMatches,
     watchMatch,
     unwatchMatch,
     reloadMatches,
   } = useMatchData();
+
+  const activeMatch = useMemo(() => {
+    // eslint-disable-next-line eqeqeq
+    return matches.find((m) => m.id == activeMatchId) || null;
+  }, [matches, activeMatchId]);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setSoundEnabled(next);
+  };
+
+  // Autonomous Live Simulation Ticker
+  useEffect(() => {
+    if (!isAutoSim || matches.length === 0) return;
+
+    const interval = setInterval(async () => {
+      // Pick target match: active match first, or a live match, or random match
+      // eslint-disable-next-line eqeqeq
+      const targetMatch = (activeMatchId ? matches.find(m => m.id == activeMatchId) : null)
+        || matches.find(m => m.status.toLowerCase() === 'live')
+        || matches[Math.floor(Math.random() * matches.length)];
+
+      if (!targetMatch) return;
+
+      const sport = targetMatch.sport.toLowerCase();
+      const isHomeTeamAction = Math.random() > 0.45;
+      const actingTeam = isHomeTeamAction ? targetMatch.homeTeam : targetMatch.awayTeam;
+
+      try {
+        if (sport.includes('football') || sport.includes('soccer')) {
+          const events = [
+            { type: 'goal', message: `GOAL! ${actingTeam} scores a sensational strike into the top corner!`, isScore: true },
+            { type: 'shot', message: `Close! ${actingTeam} unleashes a ferocious long-range strike that rattles the crossbar.`, isScore: false },
+            { type: 'foul', message: `Tactical foul committed in the center circle by ${actingTeam}.`, isScore: false },
+            { type: 'card', message: `Yellow card brandished to ${actingTeam} defender after stopping a counter-attack.`, isScore: false },
+            { type: 'corner', message: `${actingTeam} forces a corner after a deflected cross.`, isScore: false },
+          ];
+          const event = events[Math.floor(Math.random() * events.length)];
+          const min = Math.floor(Math.random() * 90) + 1;
+
+          await postCommentary(targetMatch.id, {
+            message: event.message,
+            eventType: event.type,
+            team: actingTeam,
+            minute: min,
+            actor: `${actingTeam} Playmaker`,
+          });
+
+          if (event.isScore) {
+            const nextHome = isHomeTeamAction ? targetMatch.homeScore + 1 : targetMatch.homeScore;
+            const nextAway = !isHomeTeamAction ? targetMatch.awayScore + 1 : targetMatch.awayScore;
+            await updateMatchScore(targetMatch.id, nextHome, nextAway);
+          }
+        } else if (sport.includes('cricket')) {
+          const events = [
+            { type: 'six', message: `SIX! Massive blow deep into the grandstand by ${actingTeam}!`, runs: 6 },
+            { type: 'four', message: `FOUR! Cracking cover drive finds the fence for ${actingTeam}!`, runs: 4 },
+            { type: 'wicket', message: `WICKET! Clean bowled! Middle stump uprooted for ${actingTeam}!`, runs: 0 },
+            { type: 'single', message: `Quick single pushed into the gap on the onside by ${actingTeam}.`, runs: 1 },
+          ];
+          const event = events[Math.floor(Math.random() * events.length)];
+          await postCommentary(targetMatch.id, {
+            message: event.message,
+            eventType: event.type,
+            team: actingTeam,
+            actor: `${actingTeam} Batter`,
+          });
+
+          if (event.runs > 0) {
+            const nextHome = isHomeTeamAction ? targetMatch.homeScore + event.runs : targetMatch.homeScore;
+            const nextAway = !isHomeTeamAction ? targetMatch.awayScore + event.runs : targetMatch.awayScore;
+            await updateMatchScore(targetMatch.id, nextHome, nextAway);
+          }
+        } else {
+          // Basketball
+          const events = [
+            { type: 'three-pointer', message: `From downtown! 3-pointer drained with authority by ${actingTeam}!`, pts: 3 },
+            { type: 'dunk', message: `Vicious two-handed slam dunk in transition for ${actingTeam}!`, pts: 2 },
+            { type: 'foul', message: `Shooting foul drawn on the drive by ${actingTeam}.`, pts: 1 },
+          ];
+          const event = events[Math.floor(Math.random() * events.length)];
+          await postCommentary(targetMatch.id, {
+            message: event.message,
+            eventType: event.type,
+            team: actingTeam,
+            actor: `${actingTeam} Guard`,
+          });
+
+          const nextHome = isHomeTeamAction ? targetMatch.homeScore + event.pts : targetMatch.homeScore;
+          const nextAway = !isHomeTeamAction ? targetMatch.awayScore + event.pts : targetMatch.awayScore;
+          await updateMatchScore(targetMatch.id, nextHome, nextAway);
+        }
+      } catch (err) {
+        console.warn('[AutoSim] Event trigger error:', err);
+      }
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [isAutoSim, matches, activeMatchId]);
 
   // Filter matches based on sport, status, and search query
   const filteredMatches = useMemo(() => {
@@ -83,6 +194,13 @@ const App: React.FC = () => {
         onMatchSelect={(id) => watchMatch(id)}
       />
 
+      {/* AI Analyst Modal */}
+      <AiAnalystModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        match={activeMatch || (matches.length > 0 ? matches[0] : null)}
+      />
+
       <div className="min-h-screen p-4 md:p-8 font-sans">
         <div className="max-w-7xl mx-auto space-y-8">
         
@@ -91,24 +209,64 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4">
             <div className="text-5xl animate-bounce leading-none drop-shadow-md pb-1">⚽</div>
             <div>
-              <h1 className="text-3xl font-black tracking-tight text-brand-dark mb-1">
-                Sportz
-              </h1>
-              <p className="text-sm font-medium opacity-80">Real-time match data dashboard</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-3xl font-black tracking-tight text-brand-dark">
+                  Sportz
+                </h1>
+                <span className="text-[10px] font-mono font-bold bg-white text-black border border-black px-2 py-0.5 rounded-full shadow-hard-sm">
+                  v2.0 Real-Time + AI
+                </span>
+              </div>
+              <p className="text-sm font-medium opacity-80">Full-Duplex Sports Telemetry & AI Analytics Dashboard</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Auto Sim Button */}
+            <button
+              onClick={() => setIsAutoSim(!isAutoSim)}
+              title="Autonomously fire live match events every 6s"
+              className={`
+                flex items-center gap-1.5 border-2 border-black rounded-xl font-black text-xs px-3.5 py-2 transition-all active:translate-y-0.5 shadow-hard-sm
+                ${isAutoSim ? 'bg-red-500 text-white animate-pulse' : 'bg-white hover:bg-gray-100 text-black'}
+              `}
+            >
+              <span>{isAutoSim ? '🔴' : '▶'}</span>
+              <span>{isAutoSim ? 'Auto-Sim: Active' : 'Auto-Sim Demo'}</span>
+            </button>
+
+            {/* Sound FX Toggle */}
+            <button
+              onClick={toggleSound}
+              title={soundOn ? 'Sound Effects Enabled' : 'Sound Effects Muted'}
+              className="flex items-center gap-1.5 bg-white hover:bg-gray-100 text-black border-2 border-black rounded-xl font-black text-xs px-3 py-2 shadow-hard-sm transition-all active:translate-y-0.5"
+            >
+              <span>{soundOn ? '🔊' : '🔇'}</span>
+              <span>{soundOn ? 'Sound: ON' : 'Sound: OFF'}</span>
+            </button>
+
+            {/* Manual Simulator Button */}
             <button
               onClick={() => setIsSimulatorOpen(true)}
-              className="flex items-center gap-2 bg-white hover:bg-gray-100 text-black border-2 border-black rounded-xl font-black text-sm px-4 py-2.5 shadow-hard-sm transition-all active:translate-y-0.5"
+              className="flex items-center gap-1.5 bg-white hover:bg-gray-100 text-black border-2 border-black rounded-xl font-black text-xs px-3.5 py-2 shadow-hard-sm transition-all active:translate-y-0.5"
             >
               <span>⚡</span>
-              <span>Simulate Event</span>
+              <span>Simulate</span>
             </button>
-            <div className="flex flex-col items-end gap-1.5">
+
+            {/* AI Analyst Button */}
+            <button
+              onClick={() => setIsAiModalOpen(true)}
+              className="flex items-center gap-1.5 bg-brand-blue hover:bg-blue-200 text-black border-2 border-black rounded-xl font-black text-xs px-3.5 py-2 shadow-hard-sm transition-all active:translate-y-0.5"
+            >
+              <span>🤖</span>
+              <span>AI Analyst</span>
+            </button>
+
+            <div className="flex flex-col items-end gap-1">
               <StatusIndicator status={status} />
               {wsError && (
-                <span className="text-xs font-mono bg-red-100 text-red-700 border border-red-200 px-2 py-1 rounded">
+                <span className="text-[10px] font-mono bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded">
                   WS: {wsError}
                 </span>
               )}
@@ -227,7 +385,7 @@ const App: React.FC = () => {
                   <h3 className="text-lg font-bold mb-1">Connection Error</h3>
                   <p className="font-mono text-sm bg-red-100 py-1 px-2 rounded inline-block mb-4 border border-red-200">{error}</p>
                   <p className="text-sm opacity-80 mb-6 max-w-md mx-auto">
-                    The application could not reach the API. Please ensure the API server is online and accessible from your network.
+                    The application could not reach the API. Please ensure the API server is online and accessible.
                   </p>
                   <button 
                     onClick={reloadMatches}
@@ -295,17 +453,44 @@ const App: React.FC = () => {
             )}
           </main>
 
-          {/* Right Column: Live Feed (Sticky on Desktop) */}
-          <aside className="lg:col-span-1 h-[500px] lg:h-[calc(100vh-140px)] lg:sticky lg:top-8">
-            <LiveFeed messages={commentary} isActive={!!activeMatchId} isLoading={isCommentaryLoading} />
+          {/* Right Column: Live Feed & Telemetry (Sticky on Desktop) */}
+          <aside className="lg:col-span-1 space-y-4 lg:sticky lg:top-8">
+            {/* Live Win Probability & Momentum */}
+            {activeMatch && (
+              <WinProbabilityMeter
+                homeTeam={activeMatch.homeTeam}
+                awayTeam={activeMatch.awayTeam}
+                homeScore={activeMatch.homeScore}
+                awayScore={activeMatch.awayScore}
+                status={activeMatch.status}
+              />
+            )}
+
+            {/* Fan Reactions Bar */}
+            {activeMatch && (
+              <FanReactions
+                reactions={reactions}
+                recentReaction={recentReaction}
+                onReact={sendReaction}
+              />
+            )}
+
+            {/* Live Commentary Feed */}
+            <div className="h-[460px] lg:h-[calc(100vh-380px)]">
+              <LiveFeed 
+                messages={commentary} 
+                isActive={!!activeMatchId} 
+                isLoading={isCommentaryLoading} 
+              />
+            </div>
           </aside>
 
         </div>
 
         {/* Footer */}
         <footer className="mt-12 border-t-2 border-gray-200 pt-8 pb-6 text-center text-sm text-gray-500 font-medium">
-          <p>Powered by Node.js, Express, WebSockets, and Neon Serverless PostgreSQL.</p>
-          <p className="mt-1">Real-time data feeds secured by Arcjet.</p>
+          <p>Powered by Node.js, Express, WebSockets, Google Gemini 3.8 Flash, and Neon PostgreSQL.</p>
+          <p className="mt-1">Real-time bi-directional telemetry secured by Arcjet.</p>
         </footer>
       </div>
     </div>
@@ -314,4 +499,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-

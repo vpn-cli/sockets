@@ -89,6 +89,37 @@ export interface WSMessageUnsubscribedAll {
   type: 'unsubscribed_all';
 }
 
+export interface ReactionCounts {
+  [emoji: string]: number;
+}
+
+export interface WSMessageReactionBroadcast {
+  type: 'reaction_broadcast';
+  matchId: string | number;
+  emoji: string;
+  counts: ReactionCounts;
+}
+
+export interface WSMessageReactionSnapshot {
+  type: 'reaction_snapshot';
+  matchId: string | number;
+  counts: ReactionCounts;
+}
+
+export interface AiInsights {
+  summary: string;
+  momentum: {
+    favoredTeam: string;
+    homeWinProbability: number;
+    awayWinProbability: number;
+    description: string;
+  };
+  keyTacticalPoints: string[];
+  standoutPlayers: string[];
+  predictedOutcome: string;
+  generatedBy?: string;
+}
+
 export type WSMessage =
   | WSMessageCommentary
   | WSMessageScore
@@ -99,4 +130,6 @@ export type WSMessage =
   | WSMessageUnsubscribed
   | WSMessageSubscriptions
   | WSMessageSubscribedAll
-  | WSMessageUnsubscribedAll;
+  | WSMessageUnsubscribedAll
+  | WSMessageReactionBroadcast
+  | WSMessageReactionSnapshot;

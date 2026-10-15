@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchMatchCommentary, fetchMatches } from "../services/api";
-import { Commentary, Match, WSMessage } from "../types";
+import { Commentary, Match, ReactionCounts, WSMessage } from "../types";
 import { useWebSocket } from "./useWebSocket";
+import { playGoalSound, playImpactSound, playReactionSound } from "../services/soundEffects";
 
 interface UseMatchData {
   matches: Match[];
@@ -13,6 +14,9 @@ interface UseMatchData {
   status: ReturnType<typeof useWebSocket>["status"];
   activeMatchId: string | number | null;
   newMatchesCount: number;
+  reactions: ReactionCounts;
+  recentReaction: { emoji: string; id: number } | null;
+  sendReaction: (emoji: string) => void;
   dismissNewMatches: () => void;
   watchMatch: (id: string | number) => void;
   unwatchMatch: (id: string | number) => void;
@@ -28,6 +32,8 @@ export const useMatchData = (): UseMatchData => {
   const [wsError, setWsError] = useState<string | null>(null);
   const [activeMatchId, setActiveMatchId] = useState<string | number | null>(null);
   const [newMatchesCount, setNewMatchesCount] = useState(0);
+  const [reactions, setReactions] = useState<ReactionCounts>({});
+  const [recentReaction, setRecentReaction] = useState<{ emoji: string; id: number } | null>(null);
   const latestMatchIdRef = useRef<string | number | null>(null);
   const subscribedMatchIdsRef = useRef(new Set<string>());
   const hasLoadedRef = useRef(false);
@@ -37,6 +43,7 @@ export const useMatchData = (): UseMatchData => {
   const handleWSMessage = useCallback((msg: WSMessage) => {
     switch (msg.type) {
       case "score_update":
+        playGoalSound();
         setMatches((prevMatches) =>
           prevMatches.map((m) => {
             // Loose equality check for ID (string vs number)
@@ -60,11 +67,34 @@ export const useMatchData = (): UseMatchData => {
         ) {
           return;
         }
+        const eventType = msg.data.eventType?.toLowerCase();
+        if (eventType === 'goal' || eventType === 'wicket' || eventType === 'six' || eventType === 'four') {
+          playGoalSound();
+        } else if (eventType === 'card' || eventType === 'foul') {
+          playImpactSound();
+        }
+
         const normalized = {
           ...msg.data,
           createdAt: msg.data.createdAt ?? new Date().toISOString(),
         };
         setCommentary((prev) => [normalized, ...prev]);
+        break;
+      }
+      case "reaction_snapshot": {
+        // eslint-disable-next-line eqeqeq
+        if (latestMatchIdRef.current != null && msg.matchId == latestMatchIdRef.current) {
+          setReactions(msg.counts || {});
+        }
+        break;
+      }
+      case "reaction_broadcast": {
+        // eslint-disable-next-line eqeqeq
+        if (latestMatchIdRef.current != null && msg.matchId == latestMatchIdRef.current) {
+          setReactions(msg.counts || {});
+          setRecentReaction({ emoji: msg.emoji, id: Date.now() + Math.random() });
+          playReactionSound();
+        }
         break;
       }
       case "error":
@@ -88,6 +118,7 @@ export const useMatchData = (): UseMatchData => {
     connectGlobal,
     subscribeMatch,
     unsubscribeMatch,
+    sendReaction: wsSendReaction,
     disconnect,
   } = useWebSocket(handleWSMessage);
 
@@ -243,10 +274,21 @@ export const useMatchData = (): UseMatchData => {
         setActiveMatchId(null);
         latestMatchIdRef.current = null;
         setCommentary([]);
+        setReactions({});
+        setRecentReaction(null);
         setIsCommentaryLoading(false);
       }
     },
     [activeMatchId, unsubscribeMatch]
+  );
+
+  const sendReaction = useCallback(
+    (emoji: string) => {
+      if (activeMatchId != null) {
+        wsSendReaction(activeMatchId, emoji);
+      }
+    },
+    [activeMatchId, wsSendReaction]
   );
 
   return {
@@ -259,6 +301,9 @@ export const useMatchData = (): UseMatchData => {
     status,
     activeMatchId,
     newMatchesCount,
+    reactions,
+    recentReaction,
+    sendReaction,
     dismissNewMatches,
     watchMatch,
     unwatchMatch,

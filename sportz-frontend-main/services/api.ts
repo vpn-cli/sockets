@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "../constants";
-import { Commentary, CommentaryResponse, Match, MatchResponse } from "../types";
+import { AiInsights, Commentary, CommentaryResponse, Match, MatchResponse } from "../types";
 
 export const fetchMatches = async (limit = 50): Promise<MatchResponse> => {
   try {
@@ -79,6 +79,21 @@ export const postCommentary = async (
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
     throw new Error(errorBody.error || `Failed to post commentary: ${response.status}`);
+  }
+
+  return response.json();
+};
+
+export const fetchAiMatchInsights = async (
+  matchId: string | number
+): Promise<{ data: AiInsights }> => {
+  const response = await fetch(`${API_BASE_URL}/matches/${matchId}/ai-insights`, {
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.error || `Failed to fetch AI insights: ${response.status}`);
   }
 
   return response.json();

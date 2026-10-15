@@ -7,6 +7,7 @@ interface UseWebSocketReturn {
   connectGlobal: () => void;
   subscribeMatch: (matchId: string | number) => void;
   unsubscribeMatch: (matchId: string | number) => void;
+  sendReaction: (matchId: string | number, emoji: string) => void;
   disconnect: () => void;
 }
 
@@ -173,6 +174,14 @@ export const useWebSocket = (
     sendMessage({ type: 'unsubscribe', matchId: Number(matchId) });
   }, [sendMessage]);
 
+  const sendReaction = useCallback((matchId: string | number, emoji: string) => {
+    sendMessage({
+      type: 'reaction',
+      matchId: Number(matchId),
+      emoji,
+    });
+  }, [sendMessage]);
+
   // Public disconnect method
   const disconnect = useCallback(() => {
     isIntentionalClose.current = true;
@@ -205,5 +214,5 @@ export const useWebSocket = (
     };
   }, [cleanupSocket]);
 
-  return { status, connectGlobal, subscribeMatch, unsubscribeMatch, disconnect };
+  return { status, connectGlobal, subscribeMatch, unsubscribeMatch, sendReaction, disconnect };
 };
