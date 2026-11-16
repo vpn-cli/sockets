@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "npm --prefix sportz-websockets-main test && npm --prefix sportz-frontend-main test",
     "dev": "node dev.js",
     "dev:backend": "npm --prefix sportz-websockets-main run dev",
     "dev:frontend": "npm --prefix sportz-frontend-main run dev",
