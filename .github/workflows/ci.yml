@@ -24,9 +24,11 @@ jobs:
       working-directory: ./sportz-websockets-main
       run: |
         npm install
+        npm test
         
     - name: Verify Frontend (React/Vite)
       working-directory: ./sportz-frontend-main
       run: |
         npm install
+        npm test
         npm run build
