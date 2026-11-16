@@ -1,120 +1,107 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { wsArcjet, isLocalhostIp } from "../arcjet.js";
 
-const matchSubscribers = new Map();
-const matchReactions = new Map();
 const ALLOWED_EMOJIS = ['🔥', '👏', '⚡', '❤️', '⚽', '🎯'];
 
-function subscribe(matchId, socket) {
-    if(!matchSubscribers.has(matchId)) {
-        matchSubscribers.set(matchId, new Set());
+export function attachWebSocketServer(server, { heartbeatMs = 30000 } = {}) {
+    const matchSubscribers = new Map();
+    const matchReactions = new Map();
+
+    function subscribe(matchId, socket) {
+        if(!matchSubscribers.has(matchId)) {
+            matchSubscribers.set(matchId, new Set());
+        }
+
+        matchSubscribers.get(matchId).add(socket);
     }
 
-    matchSubscribers.get(matchId).add(socket);
-}
+    function unsubscribe(matchId, socket) {
+        const subscribers = matchSubscribers.get(matchId);
 
-function unsubscribe(matchId, socket) {
-    const subscribers = matchSubscribers.get(matchId);
+        if(!subscribers) return;
 
-    if(!subscribers) return;
+        subscribers.delete(socket);
 
-    subscribers.delete(socket);
-
-    if(subscribers.size === 0) {
-        matchSubscribers.delete(matchId);
-    }
-}
-
-function cleanupSubscriptions(socket) {
-    for(const matchId of socket.subscriptions) {
-        unsubscribe(matchId, socket);
-    }
-}
-
-function sendJson(socket, payload) {
-    if(socket.readyState !== WebSocket.OPEN) return;
-
-    socket.send(JSON.stringify(payload));
-}
-
-function broadcastToAll(wss, payload) {
-    for (const client of wss.clients)  {
-        if(client.readyState !== WebSocket.OPEN) continue;
-
-        client.send(JSON.stringify(payload));
-    }
-}
-
-function broadcastToMatch(matchId, payload) {
-    const subscribers = matchSubscribers.get(matchId);
-    if(!subscribers || subscribers.size === 0) return;
-
-    const message = JSON.stringify(payload);
-
-    for(const client of subscribers) {
-        if(client.readyState === WebSocket.OPEN) {
-            client.send(message);
+        if(subscribers.size === 0) {
+            matchSubscribers.delete(matchId);
         }
     }
-}
 
-function handleMessage(socket, data) {
-    let message;
-
-    try {
-        message = JSON.parse(data.toString());
-    } catch {
-        sendJson(socket, { type: 'error', message: 'Invalid JSON' });
-        return;
+    function cleanupSubscriptions(socket) {
+        for(const matchId of socket.subscriptions) {
+            unsubscribe(matchId, socket);
+        }
     }
 
-    const matchId = Number(message?.matchId);
+    function broadcastToMatch(matchId, payload) {
+        const subscribers = matchSubscribers.get(matchId);
+        if(!subscribers || subscribers.size === 0) return;
 
-    if(message?.type === "subscribe" && Number.isInteger(matchId)) {
-        subscribe(matchId, socket);
-        socket.subscriptions.add(matchId);
-        sendJson(socket, { type: 'subscribed', matchId });
-        // Send initial reaction counts
-        sendJson(socket, {
-            type: 'reaction_snapshot',
-            matchId,
-            counts: matchReactions.get(matchId) || { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 }
-        });
-        return;
-    }
+        const message = JSON.stringify(payload);
 
-    if(message?.type === "reaction" && Number.isInteger(matchId)) {
-        const emoji = message?.emoji;
-        if (typeof emoji === 'string' && ALLOWED_EMOJIS.includes(emoji)) {
-            if (!matchReactions.has(matchId)) {
-                matchReactions.set(matchId, { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 });
+        for(const client of subscribers) {
+            if(client.readyState === WebSocket.OPEN) {
+                client.send(message);
             }
-            const counts = matchReactions.get(matchId);
-            counts[emoji] = (counts[emoji] || 0) + 1;
+        }
+    }
 
-            broadcastToMatch(matchId, {
-                type: 'reaction_broadcast',
+    function handleMessage(socket, data) {
+        let message;
+
+        try {
+            message = JSON.parse(data.toString());
+        } catch {
+            sendJson(socket, { type: 'error', message: 'Invalid JSON' });
+            return;
+        }
+
+        const matchId = Number(message?.matchId);
+
+        if(message?.type === "subscribe" && Number.isInteger(matchId)) {
+            subscribe(matchId, socket);
+            socket.subscriptions.add(matchId);
+            sendJson(socket, { type: 'subscribed', matchId });
+            // Send initial reaction counts
+            sendJson(socket, {
+                type: 'reaction_snapshot',
                 matchId,
-                emoji,
-                counts: { ...counts }
+                counts: matchReactions.get(matchId) || { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 }
             });
             return;
         }
+
+        if(message?.type === "reaction" && Number.isInteger(matchId)) {
+            const emoji = message?.emoji;
+            if (typeof emoji === 'string' && ALLOWED_EMOJIS.includes(emoji)) {
+                if (!matchReactions.has(matchId)) {
+                    matchReactions.set(matchId, { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 });
+                }
+                const counts = matchReactions.get(matchId);
+                counts[emoji] = (counts[emoji] || 0) + 1;
+
+                broadcastToMatch(matchId, {
+                    type: 'reaction_broadcast',
+                    matchId,
+                    emoji,
+                    counts: { ...counts }
+                });
+                return;
+            }
+        }
+
+        if(message?.type === "unsubscribe" && Number.isInteger(matchId)) {
+            unsubscribe(matchId, socket);
+            socket.subscriptions.delete(matchId);
+            sendJson(socket, { type: 'unsubscribed', matchId });
+            return;
+        }
+
+        if(message?.type === "ping") {
+            sendJson(socket, { type: 'pong' });
+        }
     }
 
-    if(message?.type === "unsubscribe" && Number.isInteger(matchId)) {
-        unsubscribe(matchId, socket);
-        socket.subscriptions.delete(matchId);
-        sendJson(socket, { type: 'unsubscribed', matchId });
-        return;
-    }
-
-    if(message?.type === "ping") {
-        sendJson(socket, { type: 'pong' });
-    }
-}
-
-export function attachWebSocketServer(server) {
     const wss = new WebSocketServer({ noServer: true, path: '/ws', maxPayload: 1024 * 1024 });
 
     server.on('upgrade', async (req, socket, head) => {
@@ -183,9 +170,20 @@ export function attachWebSocketServer(server) {
             ws.isAlive = false;
             ws.ping();
         });
-    }, 30000);
+    }, heartbeatMs);
 
     wss.on('close', () => clearInterval(interval));
+    server.on('close', () => {
+        clearInterval(interval);
+        wss.close();
+    });
+
+    const broadcastToAllClients = (arg1, arg2) => {
+        if (arg2 !== undefined) {
+            return broadcastToAll(arg1, arg2);
+        }
+        return broadcastToAll(wss, arg1);
+    };
 
     function broadcastMatchCreated(match) {
         broadcastToAll(wss, { type: 'match_created', data: match });
@@ -199,6 +197,14 @@ export function attachWebSocketServer(server) {
         broadcastToAll(wss, { type: 'score_update', matchId: Number(matchId), data: scoreData });
     }
 
-    return { broadcastMatchCreated, broadcastCommentary, broadcastScoreUpdate };
+    return {
+        wss,
+        broadcastToAll: broadcastToAllClients,
+        broadcastToMatch,
+        matchSubscribers,
+        broadcastMatchCreated,
+        broadcastCommentary,
+        broadcastScoreUpdate,
+    };
 }
 
