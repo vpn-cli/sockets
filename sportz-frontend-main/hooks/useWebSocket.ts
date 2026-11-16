@@ -2,6 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { WS_BASE_URL, INITIAL_RECONNECT_DELAY, MAX_RECONNECT_DELAY } from '../constants';
 import { ConnectionStatus, WSMessage } from '../types';
 
+export function getReconnectDelay(
+  attempt: number,
+  initialDelay: number = INITIAL_RECONNECT_DELAY,
+  maxDelay: number = MAX_RECONNECT_DELAY
+): number {
+  return Math.min(initialDelay * (2 ** Math.max(0, attempt)), maxDelay);
+}
+
 interface UseWebSocketReturn {
   status: ConnectionStatus;
   connectGlobal: () => void;
@@ -121,10 +129,7 @@ export const useWebSocket = (
 
         // Unintentional disconnect: initiate reconnect backoff
         setStatus('reconnecting');
-        const delay = Math.min(
-          INITIAL_RECONNECT_DELAY * (2 ** reconnectAttempts.current),
-          MAX_RECONNECT_DELAY
-        );
+        const delay = getReconnectDelay(reconnectAttempts.current);
         
         console.log(`[WebSocket] Disconnected (Code: ${event.code}). Reconnecting in ${delay}ms...`);
         
