@@ -17,9 +17,63 @@ function broadcastToAll(wss, payload) {
     }
 }
 
-export function attachWebSocketServer(server, { heartbeatMs = 30000 } = {}) {
+function parsePositiveInteger(val) {
+    if (typeof val === 'number') {
+        return Number.isInteger(val) && val > 0 ? val : null;
+    }
+    if (typeof val === 'string' && /^\d+$/.test(val.trim())) {
+        const num = Number(val.trim());
+        return Number.isInteger(num) && num > 0 ? num : null;
+    }
+    return null;
+}
+
+export function attachWebSocketServer(server, {
+    heartbeatMs = 30000,
+    maxSubscriptionsPerSocket = 50,
+    knownMatchIds = null,
+    matchExists = null
+} = {}) {
     const matchSubscribers = new Map();
     const matchReactions = new Map();
+
+    const knownMatchIdsSet = knownMatchIds instanceof Set
+        ? knownMatchIds
+        : Array.isArray(knownMatchIds)
+            ? new Set(knownMatchIds)
+            : new Set();
+
+    async function checkMatchExists(matchId) {
+        if (typeof matchExists === 'function') {
+            return await matchExists(matchId);
+        }
+        if (knownMatchIds !== null) {
+            return knownMatchIdsSet.has(matchId);
+        }
+        if (knownMatchIdsSet.has(matchId)) {
+            return true;
+        }
+        try {
+            if (process.env.DATABASE_URL) {
+                const { db } = await import("../db/db.js");
+                const { matches } = await import("../db/schema.js");
+                const { eq } = await import("drizzle-orm");
+                const [row] = await db
+                    .select({ id: matches.id })
+                    .from(matches)
+                    .where(eq(matches.id, matchId))
+                    .limit(1);
+                if (row) {
+                    knownMatchIdsSet.add(matchId);
+                    return true;
+                }
+                return false;
+            }
+        } catch {
+            // DB not reachable or unconfigured (e.g. tests)
+        }
+        return false;
+    }
 
     function subscribe(matchId, socket) {
         if(!matchSubscribers.has(matchId)) {
@@ -60,7 +114,7 @@ export function attachWebSocketServer(server, { heartbeatMs = 30000 } = {}) {
         }
     }
 
-    function handleMessage(socket, data) {
+    async function handleMessage(socket, data) {
         let message;
 
         try {
@@ -70,9 +124,28 @@ export function attachWebSocketServer(server, { heartbeatMs = 30000 } = {}) {
             return;
         }
 
-        const matchId = Number(message?.matchId);
+        if(message?.type === "subscribe") {
+            const matchId = parsePositiveInteger(message?.matchId);
+            if (matchId === null) {
+                sendJson(socket, { type: 'error', message: 'Invalid matchId' });
+                return;
+            }
 
-        if(message?.type === "subscribe" && Number.isInteger(matchId)) {
+            const exists = await checkMatchExists(matchId);
+            if (!exists) {
+                sendJson(socket, {
+                    type: 'error',
+                    code: 'match_not_found',
+                    message: `Match ${matchId} not found`
+                });
+                return;
+            }
+
+            if (!socket.subscriptions.has(matchId) && socket.subscriptions.size >= maxSubscriptionsPerSocket) {
+                sendJson(socket, { type: 'error', message: 'Subscription limit reached' });
+                return;
+            }
+
             subscribe(matchId, socket);
             socket.subscriptions.add(matchId);
             sendJson(socket, { type: 'subscribed', matchId });
@@ -85,7 +158,13 @@ export function attachWebSocketServer(server, { heartbeatMs = 30000 } = {}) {
             return;
         }
 
-        if(message?.type === "reaction" && Number.isInteger(matchId)) {
+        if(message?.type === "reaction") {
+            const matchId = parsePositiveInteger(message?.matchId);
+            if (matchId === null) {
+                sendJson(socket, { type: 'error', message: 'Invalid matchId' });
+                return;
+            }
+
             const emoji = message?.emoji;
             if (typeof emoji === 'string' && ALLOWED_EMOJIS.includes(emoji)) {
                 if (!matchReactions.has(matchId)) {
@@ -104,7 +183,13 @@ export function attachWebSocketServer(server, { heartbeatMs = 30000 } = {}) {
             }
         }
 
-        if(message?.type === "unsubscribe" && Number.isInteger(matchId)) {
+        if(message?.type === "unsubscribe") {
+            const matchId = parsePositiveInteger(message?.matchId);
+            if (matchId === null) {
+                sendJson(socket, { type: 'error', message: 'Invalid matchId' });
+                return;
+            }
+
             unsubscribe(matchId, socket);
             socket.subscriptions.delete(matchId);
             sendJson(socket, { type: 'unsubscribed', matchId });
@@ -200,6 +285,10 @@ export function attachWebSocketServer(server, { heartbeatMs = 30000 } = {}) {
     };
 
     function broadcastMatchCreated(match) {
+        const id = parsePositiveInteger(match?.id);
+        if (id !== null) {
+            knownMatchIdsSet.add(id);
+        }
         broadcastToAll(wss, { type: 'match_created', data: match });
     }
 
@@ -216,6 +305,7 @@ export function attachWebSocketServer(server, { heartbeatMs = 30000 } = {}) {
         broadcastToAll: broadcastToAllClients,
         broadcastToMatch,
         matchSubscribers,
+        knownMatchIds: knownMatchIdsSet,
         broadcastMatchCreated,
         broadcastCommentary,
         broadcastScoreUpdate,

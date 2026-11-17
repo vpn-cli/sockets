@@ -106,7 +106,10 @@ describe('WebSocket Server Integration Tests', () => {
 
     beforeEach(async () => {
         server = http.createServer();
-        serverHandles = attachWebSocketServer(server, { heartbeatMs: 30000 });
+        serverHandles = attachWebSocketServer(server, {
+            heartbeatMs: 30000,
+            knownMatchIds: new Set([1, 2, 3, 5, 42]),
+        });
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
         const port = server.address().port;
         wsUrl = `ws://127.0.0.1:${port}/ws`;
@@ -326,34 +329,105 @@ describe('WebSocket Server Integration Tests', () => {
         expect(pong.type).toBe('pong');
     });
 
-    describe('invalid matchId on subscribe behaviour', () => {
-        it('ignores non-numeric/non-integer string matchId without crashing or subscribing', async () => {
+    describe('matchId validation and subscription security', () => {
+        it('rejects null, 0, negative, non-numeric, and boolean matchIds with Invalid matchId error', async () => {
             const client = await connect();
             await nextMessage(client, 'welcome');
 
-            // Send non-integer garbage string
-            client.send(JSON.stringify({ type: 'subscribe', matchId: 'garbage' }));
+            const invalidPayloads = [
+                { type: 'subscribe', matchId: null },
+                { type: 'subscribe', matchId: 0 },
+                { type: 'subscribe', matchId: -5 },
+                { type: 'subscribe', matchId: 'garbage' },
+                { type: 'subscribe', matchId: false },
+                { type: 'subscribe', matchId: true },
+                { type: 'subscribe', matchId: 3.14 },
+            ];
 
-            // Server ignores it (Number("garbage") is NaN -> Number.isInteger(NaN) is false)
-            await expectNoMessage(client, 150);
-            expect(serverHandles.matchSubscribers.has(NaN)).toBe(false);
+            for (const payload of invalidPayloads) {
+                client.send(JSON.stringify(payload));
+                const errorMsg = await nextMessage(client, 'error');
+                expect(errorMsg.message).toBe('Invalid matchId');
+            }
         });
 
-        it('currently accepts any integer (including non-existent match IDs and null -> 0) because DB validation is omitted', async () => {
+        it('accepts valid numeric string as positive integer', async () => {
             const client = await connect();
             await nextMessage(client, 'welcome');
 
-            // Arbitrary non-existent match ID integer
-            client.send(JSON.stringify({ type: 'subscribe', matchId: 999999 }));
+            client.send(JSON.stringify({ type: 'subscribe', matchId: '1' }));
             const subMsg = await nextMessage(client, 'subscribed');
-            expect(subMsg.matchId).toBe(999999);
-            expect(serverHandles.matchSubscribers.has(999999)).toBe(true);
+            expect(subMsg.matchId).toBe(1);
+            expect(serverHandles.matchSubscribers.has(1)).toBe(true);
+        });
 
-            // null coerces to 0 via Number(null), which Number.isInteger(0) accepts
-            client.send(JSON.stringify({ type: 'subscribe', matchId: null }));
-            const nullSubMsg = await nextMessage(client, 'subscribed');
-            expect(nullSubMsg.matchId).toBe(0);
-            expect(serverHandles.matchSubscribers.has(0)).toBe(true);
+        it('rejects subscriptions to matches that do not exist', async () => {
+            const client = await connect();
+            await nextMessage(client, 'welcome');
+
+            client.send(JSON.stringify({ type: 'subscribe', matchId: 999999 }));
+            const errorMsg = await nextMessage(client, 'error');
+            expect(errorMsg.code).toBe('match_not_found');
+            expect(errorMsg.message).toBe('Match 999999 not found');
+            expect(serverHandles.matchSubscribers.has(999999)).toBe(false);
+        });
+
+        it('subscribing succeeds after match is created via broadcastMatchCreated', async () => {
+            const client = await connect();
+            await nextMessage(client, 'welcome');
+
+            // Initially match 777 does not exist
+            client.send(JSON.stringify({ type: 'subscribe', matchId: 777 }));
+            const errorMsg = await nextMessage(client, 'error');
+            expect(errorMsg.code).toBe('match_not_found');
+
+            // Broadcast match creation -> adds to knownMatchIdsSet
+            serverHandles.broadcastMatchCreated({ id: 777, sport: 'tennis' });
+            await nextMessage(client, 'match_created');
+
+            // Now subscription succeeds
+            client.send(JSON.stringify({ type: 'subscribe', matchId: 777 }));
+            const subMsg = await nextMessage(client, 'subscribed');
+            expect(subMsg.matchId).toBe(777);
+            expect(serverHandles.matchSubscribers.has(777)).toBe(true);
+        });
+
+        it('enforces subscription cap per socket', async () => {
+            // Spin up a dedicated server with a max cap of 3 subscriptions
+            const capServer = http.createServer();
+            const capHandles = attachWebSocketServer(capServer, {
+                maxSubscriptionsPerSocket: 3,
+                knownMatchIds: new Set([10, 20, 30, 40, 50]),
+            });
+            await new Promise((resolve) => capServer.listen(0, '127.0.0.1', resolve));
+            const capPort = capServer.address().port;
+            const capUrl = `ws://127.0.0.1:${capPort}/ws`;
+
+            const client = await connect(capUrl);
+            await nextMessage(client, 'welcome');
+
+            // First 3 subscriptions succeed
+            for (const id of [10, 20, 30]) {
+                client.send(JSON.stringify({ type: 'subscribe', matchId: id }));
+                const subMsg = await nextMessage(client, 'subscribed');
+                expect(subMsg.matchId).toBe(id);
+                // Drain reaction_snapshot
+                await nextMessage(client, 'reaction_snapshot');
+            }
+
+            // 4th subscription exceeds the cap of 3
+            client.send(JSON.stringify({ type: 'subscribe', matchId: 40 }));
+            const err = await nextMessage(client, 'error');
+            expect(err.message).toBe('Subscription limit reached');
+            expect(capHandles.matchSubscribers.has(40)).toBe(false);
+
+            // Teardown cap server
+            client.terminate();
+            capHandles.wss.close();
+            if (typeof capServer.closeAllConnections === 'function') {
+                capServer.closeAllConnections();
+            }
+            await new Promise((resolve) => capServer.close(resolve));
         });
     });
 
@@ -379,10 +453,6 @@ describe('WebSocket Server Integration Tests', () => {
         });
 
         // Wait ~200ms (~2.5 intervals of 80ms)
-        // Interval 1 (80ms): server marks isAlive=false, pings both
-        // normalClient automatically sends pong -> server marks isAlive=true
-        // silentClient does NOT send pong -> server leaves isAlive=false
-        // Interval 2 (160ms): silentClient has isAlive=false -> terminated!
         await new Promise((resolve) => setTimeout(resolve, 240));
 
         expect(silentClosed).toBe(true);
@@ -396,7 +466,11 @@ describe('WebSocket Server Integration Tests', () => {
 
         // Cleanup heartbeat server
         normalClient.terminate();
+        silentClient.terminate();
         hbHandles.wss.close();
+        if (typeof hbServer.closeAllConnections === 'function') {
+            hbServer.closeAllConnections();
+        }
         await new Promise((resolve) => hbServer.close(resolve));
     });
 });
