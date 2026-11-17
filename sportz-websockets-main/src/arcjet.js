@@ -12,8 +12,13 @@ export function getClientIp(req, trustProxy = (process.env.TRUST_PROXY === 'true
     if (trustProxy && req?.headers) {
         const xForwardedFor = req.headers['x-forwarded-for'];
         if (typeof xForwardedFor === 'string' && xForwardedFor.trim()) {
-            const firstIp = xForwardedFor.split(',')[0].trim();
-            if (firstIp) return firstIp;
+            const parts = xForwardedFor.split(',').map(s => s.trim()).filter(Boolean);
+            if (parts.length > 0) {
+                // For 1 trusted reverse proxy hop (e.g. Render, AWS ALB, Cloudflare),
+                // the trusted proxy appends the real client IP to the rightmost position.
+                // Leftmost entries can be forged by the client.
+                return parts[parts.length - 1];
+            }
         }
     }
     return req?.socket?.remoteAddress || req?.ip || null;

@@ -75,6 +75,7 @@ async function fetchServerStats(forceGc = false) {
             return {
                 cpuPercent: data.cpuPercent ?? 0,
                 dbQueriesFired: data.dbQueriesFired ?? 0,
+                lastQueryDurationMs: data.lastQueryDurationMs ?? 0,
                 ...(data.memory || {})
             };
         }
@@ -517,21 +518,31 @@ async function runColdStartSubscribeBurst(clientCount = 1000) {
     const statsBefore = await fetchServerStats(false);
     console.log(`DB queries before burst: ${statsBefore?.dbQueriesFired ?? 0}`);
 
-    // Burst: all 1,000 clients simultaneously subscribe to an UNCACHED matchId
-    const uncachedMatchId = 888800 + Math.floor(Math.random() * 10000);
-    console.log(`Firing simultaneous subscribe burst for uncached matchId=${uncachedMatchId}...`);
+    // Burst 1: Cold DB Burst
+    const uncachedMatchId1 = 888800 + Math.floor(Math.random() * 10000);
+    console.log(`Firing Cold subscribe burst for uncached matchId=${uncachedMatchId1}...`);
+    const coldStart = Date.now();
+    await Promise.all(connected.map(c => c.subscribe(uncachedMatchId1)));
+    const coldDurationMs = Date.now() - coldStart;
+    const coldStats = await fetchServerStats(false);
+    const coldDbQueries = (coldStats?.dbQueriesFired ?? 0) - (statsBefore?.dbQueriesFired ?? 0);
+    const coldDbQueryTimeMs = coldStats?.lastQueryDurationMs ?? 0;
 
-    const burstStart = Date.now();
-    const burstPromises = connected.map(c => c.subscribe(uncachedMatchId));
-    const responses = await Promise.all(burstPromises);
-    const burstDurationMs = Date.now() - burstStart;
+    console.log(`Cold burst completed in ${coldDurationMs}ms (DB query time: ${coldDbQueryTimeMs}ms, DB queries: ${coldDbQueries}).`);
 
-    const statsAfter = await fetchServerStats(false);
-    const actualDbQueriesFired = (statsAfter?.dbQueriesFired ?? 0) - (statsBefore?.dbQueriesFired ?? 0);
+    // Burst 2: Warm DB Burst (connection pool already active and warm)
+    await delay(500);
+    const queriesBeforeWarm = coldStats?.dbQueriesFired ?? 0;
+    const uncachedMatchId2 = 988800 + Math.floor(Math.random() * 10000);
+    console.log(`Firing Warm subscribe burst for uncached matchId=${uncachedMatchId2}...`);
+    const warmStart = Date.now();
+    await Promise.all(connected.map(c => c.subscribe(uncachedMatchId2)));
+    const warmDurationMs = Date.now() - warmStart;
+    const warmStats = await fetchServerStats(false);
+    const warmDbQueries = (warmStats?.dbQueriesFired ?? 0) - queriesBeforeWarm;
+    const warmDbQueryTimeMs = warmStats?.lastQueryDurationMs ?? 0;
 
-    console.log(`Burst completed in ${burstDurationMs}ms.`);
-    console.log(`Responses: ${responses.length} (match_not_found / subscribed)`);
-    console.log(`Actual DB Queries Fired by checkMatchExists: ${actualDbQueriesFired}`);
+    console.log(`Warm burst completed in ${warmDurationMs}ms (DB query time: ${warmDbQueryTimeMs}ms, DB queries: ${warmDbQueries}).`);
 
     for (const c of clients) c.close();
     await delay(1000);
@@ -539,9 +550,18 @@ async function runColdStartSubscribeBurst(clientCount = 1000) {
     return {
         type: 'cold_start_subscribe_burst',
         clients: connected.length,
-        matchId: uncachedMatchId,
-        burstDurationMs,
-        dbQueriesFired: actualDbQueriesFired
+        cold: {
+            matchId: uncachedMatchId1,
+            durationMs: coldDurationMs,
+            dbQueryTimeMs: coldDbQueryTimeMs,
+            dbQueriesFired: coldDbQueries
+        },
+        warm: {
+            matchId: uncachedMatchId2,
+            durationMs: warmDurationMs,
+            dbQueryTimeMs: warmDbQueryTimeMs,
+            dbQueriesFired: warmDbQueries
+        }
     };
 }
 
@@ -632,10 +652,9 @@ async function main() {
 
     if (fullReport.coldStartBurst && !fullReport.coldStartBurst.error) {
         const cs = fullReport.coldStartBurst;
-        console.log(`\n=================== COLD-START SUBSCRIBE BURST ===================`);
-        console.log(`Clients: ${cs.clients} simultaneous subscribes to uncached match`);
-        console.log(`Duration: ${cs.burstDurationMs} ms`);
-        console.log(`Actual DB Queries Fired by checkMatchExists: ${cs.dbQueriesFired}`);
+        console.log(`\n=================== COLD-START SUBSCRIBE BURST (1,000 Clients) ===================`);
+        console.log(`Cold Burst: Total Duration=${cs.cold.durationMs}ms | DB Query Time=${cs.cold.dbQueryTimeMs}ms | DB Queries=${cs.cold.dbQueriesFired}`);
+        console.log(`Warm Burst: Total Duration=${cs.warm.durationMs}ms | DB Query Time=${cs.warm.dbQueryTimeMs}ms | DB Queries=${cs.warm.dbQueriesFired}`);
     }
 }
 

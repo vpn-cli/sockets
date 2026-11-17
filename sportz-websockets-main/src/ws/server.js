@@ -11,6 +11,13 @@ function sendJson(socket, payload) {
 
 function broadcastToAll(wss, payload) {
     const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
+    if (process.env.BENCHMARK_LOOP_STRINGIFY === '1' || process.env.BENCHMARK_LOOP_STRINGIFY === 'true') {
+        for (const client of wss.clients) {
+            if (client.readyState !== WebSocket.OPEN) continue;
+            client.send(JSON.stringify(stamped));
+        }
+        return;
+    }
     const message = JSON.stringify(stamped);
     for (const client of wss.clients) {
         if(client.readyState !== WebSocket.OPEN) continue;
@@ -31,6 +38,11 @@ function parsePositiveInteger(val) {
 }
 
 let checkMatchExistsQueryCount = 0;
+let lastQueryTiming = { queryDurationMs: 0 };
+
+export function getLastQueryTiming() {
+    return lastQueryTiming;
+}
 
 export function getCheckMatchExistsQueryCount() {
     return checkMatchExistsQueryCount;
@@ -89,11 +101,16 @@ export function attachWebSocketServer(server, {
                     const { db } = await import("../db/db.js");
                     const { matches } = await import("../db/schema.js");
                     const { eq } = await import("drizzle-orm");
+                    const queryStart = Date.now();
                     const [row] = await db
                         .select({ id: matches.id })
                         .from(matches)
                         .where(eq(matches.id, matchId))
                         .limit(1);
+                    lastQueryTiming = {
+                        queryDurationMs: Date.now() - queryStart,
+                        timestamp: Date.now(),
+                    };
                     if (row) {
                         knownMatchIdsSet.add(matchId);
                         return true;
@@ -351,6 +368,7 @@ export function attachWebSocketServer(server, {
         broadcastScoreUpdate,
         getCheckMatchExistsQueryCount,
         resetCheckMatchExistsQueryCount,
+        getLastQueryTiming,
     };
 }
 

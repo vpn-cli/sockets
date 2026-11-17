@@ -9,7 +9,7 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import { matchRouter } from "./routes/matches.js";
-import { attachWebSocketServer, getCheckMatchExistsQueryCount, resetCheckMatchExistsQueryCount } from "./ws/server.js";
+import { attachWebSocketServer, getCheckMatchExistsQueryCount, resetCheckMatchExistsQueryCount, getLastQueryTiming } from "./ws/server.js";
 import { securityMiddleware } from "./arcjet.js";
 import { commentaryRouter } from "./routes/commentary.js";
 
@@ -60,6 +60,7 @@ app.get('/health', (req, res) => {
         timestamp: new Date().toISOString(),
         cpuPercent,
         dbQueriesFired: getCheckMatchExistsQueryCount(),
+        lastQueryDurationMs: getLastQueryTiming().queryDurationMs,
         memory: {
             rssMb: Number((mem.rss / (1024 * 1024)).toFixed(2)),
             heapUsedMb: Number((mem.heapUsed / (1024 * 1024)).toFixed(2)),

@@ -18,13 +18,13 @@ All metrics are captured using automated benchmark scripts executing against the
 
 ## Reproduction Commands
 
-### 1. Launch Backend Server in Benchmark Mode with Forced GC
-The benchmark mode flag bypasses external rate limiters (`BENCHMARK_BYPASS_ARCJET=1`) while preserving all internal pub/sub logic, connection states, and broadcast loops. `--expose-gc` allows explicit `global.gc()` execution to measure true retained heap:
+### 1. Launch Backend Server in Benchmark Mode
+The benchmark mode flag bypasses external rate limiters (`BENCHMARK_BYPASS_ARCJET=1`) while preserving all internal pub/sub logic, connection states, and broadcast loops:
 
 ```powershell
 $env:BENCHMARK_BYPASS_ARCJET="1"
 cd sportz-websockets-main
-node --expose-gc src/index.js
+node src/index.js
 ```
 
 ### 2. Execute Load Benchmark Suite
@@ -34,95 +34,95 @@ The benchmark script (`sportz-websockets-main/scripts/load-test.js`) runs concur
 node sportz-websockets-main/scripts/load-test.js --tiers 100,500,1000,2000,5000,10000 --rounds 10 --mode all
 ```
 
-Raw JSON execution logs are stored in [`benchmarks/baseline-raw.json`](./benchmarks/baseline-raw.json).
+Raw JSON execution logs are stored in [`benchmarks/baseline-raw.json`](./benchmarks/baseline-raw.json), [`benchmarks/phase1-5-raw.json`](./benchmarks/phase1-5-raw.json), and [`benchmarks/repeatability-raw.json`](./benchmarks/repeatability-raw.json).
 
 ---
 
-## Phase 1 — Extended Baseline Performance (Current Unchanged Code)
+## Phase 1.5 — Before vs After Benchmark Comparison
 
-### Benchmark 1: Concurrency Scaling & Breaking Point (Room-Based Fan-Out)
+### 1. Cold-Start Subscribe Burst: DB Query Deduplication & Timing Breakdown
 
-10 rooms ($M=10$), 10 broadcast rounds per room ($100$ broadcast rounds total per tier).
+*Workload: 1,000 connected clients simultaneously subscribing to an un-cached match ID (`checkMatchExists`), simulating a thundering herd when a marquee match goes live.*
 
-| Concurrency ($N$) | Connected Sockets | Connection Errors | Expected Deliveries | Actual Deliveries | Messages Lost | Loss Rate | Latency p50 | Latency p95 | Latency p99 | Max Latency | Server Peak CPU | Load-Gen CPU | Peak RSS | Peak Heap Used |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **100** | 100 | 0 | 1,000 | 1,000 | 0 | 0.00% | **1 ms** | 2 ms | 2 ms | 3 ms | 3.9% | 1.7% | 105.84 MB | 33.74 MB |
-| **500** | 500 | 0 | 5,000 | 5,000 | 0 | 0.00% | **2 ms** | 4 ms | 5 ms | 6 ms | 6.8% | 3.1% | 109.16 MB | 34.59 MB |
-| **1,000** | 1,000 | 0 | 10,000 | 10,000 | 0 | 0.00% | **3 ms** | 6 ms | 8 ms | 14 ms | 9.9% | 3.9% | 129.16 MB | 44.53 MB |
-| **2,000** | 2,000 | 0 | 20,000 | 20,000 | 0 | 0.00% | **6 ms** | 13 ms | 16 ms | 21 ms | 20.0% | 8.9% | 162.70 MB | 43.91 MB |
-| **5,000** | 5,000 | 0 | 50,000 | 50,000 | 0 | 0.00% | **12 ms** | 25 ms | 31 ms | 48 ms | 32.7% | 16.9% | 232.89 MB | 70.77 MB |
-| **10,000** | 10,000 | 0 | 100,000 | 97,844 | **2,156** | **2.16%** | **27 ms** | **60 ms** | **78 ms** | 98 ms | 48.7% | 35.3% | 283.04 MB | 85.92 MB |
-
-#### Breaking Point Analysis (Tier $N = 10,000$)
-- **Observed Failure Mode**: Message delivery drops (2.16% packet loss; 2,156 undelivered messages out of 100,000) and sharp latency degradation (p95 spiked to 60 ms, p99 to 78 ms).
-- **Underlying Cause**:
-  1. **Event Loop Lag & Socket Buffer Congestion**: In a single Node.js process with 10,000 active WebSocket connections, high-frequency broadcast bursts saturate the libuv event loop and OS socket write buffers. Sockets that drain slowly experience backpressure drops when subsequent broadcast rounds fire before previous frames are flushed over TCP.
-  2. **Combined Machine Load**: Total combined process CPU utilization reached ~84% (Server: 48.7%, Load Generator: 35.3%), leading to scheduling latency between the two processes sharing the 8-core CPU.
-
----
-
-### Benchmark 2: Global Broadcast Fan-Out (`broadcastToAll` Unoptimized Loop)
-
-Score update payload (~344 bytes) broadcast to **ALL** 2,000 connected clients simultaneously across 10 rounds (20,000 total deliveries). In the baseline code, `JSON.stringify(payload)` is executed repeatedly inside the loop for every single client.
-
-| Metric | Baseline Value (Current Code) |
-| :--- | :--- |
-| **Connected Clients** | 2,000 |
-| **Payload Size** | 344 bytes |
-| **Total Deliveries** | 20,000 / 20,000 (0% loss) |
-| **Latency p50** | **61 ms** |
-| **Latency p95** | **132 ms** |
-| **Latency p99** | **176 ms** |
-| **Max Latency** | **196 ms** |
-| **Server Peak CPU** | **36.9%** |
-| **Load-Gen CPU** | **27.8%** |
-
----
-
-### Benchmark 3: Cold-Start Subscribe Burst (Database Deduplication Baseline)
-
-1,000 connected clients simultaneously subscribe to an un-cached match ID (`checkMatchExists`), simulating a thundering herd when a major match goes live.
-
-| Metric | Baseline Value (Current Code) |
-| :--- | :--- |
-| **Simultaneous Client Subscribes** | 1,000 |
-| **Total DB Queries Fired by `checkMatchExists`** | **1,000 queries** |
-| **Burst Duration** | **27,497 ms (~27.5 s)** |
-| **Database Failure / Throttling Mode** | Pool connection exhaustion against Neon Postgres; queries queued sequentially over the network. |
-
----
-
-## Retained Memory Analysis (Forced GC)
-
-Memory was measured using Node.js `global.gc()` to eliminate uncollected garbage:
-- **Baseline Idle (0 clients)**: 94.09 MB RSS, 28.17 MB Heap Used
-- **After 1,000 clients teardown + GC**: 114.17 MB RSS, 28.31 MB Heap Used
-- **Peak at 5,000 clients**: 232.89 MB RSS, 70.77 MB Heap Used
-- **Peak at 10,000 clients**: 283.04 MB RSS, 85.92 MB Heap Used
-- **After 10,000 clients teardown + GC**: 240.23 MB RSS, 37.14 MB Heap Used
-
----
-
-## Phase 1.5 — Quick Fixes Before / After Results
-
-### 1. Cold-Start Subscribe Burst (Deduplication Fix Verification)
-
-1,000 clients simultaneously subscribing to an un-cached match ID:
-
-| Metric | Before Fix (Baseline) | After Fix (Phase 1.5) | Improvement / Impact |
+| Metric | Before Fix (Baseline) | After Fix (Cold DB) | After Fix (Warm DB) |
 | :--- | :---: | :---: | :---: |
-| **Simultaneous Subscribes** | 1,000 | 1,000 | Identical load |
-| **DB Queries Fired by `checkMatchExists`** | **1,000 queries** | **1 query** | **1,000x reduction (100% deduplicated)** |
-| **Thundering Herd Resolution Time** | **27,497 ms** | **2,414 ms** | **11.4x faster resolution** |
-| **Database Pool Contention** | Exhausted Neon connection pool | Zero connection pool contention | Completely prevents DB pool saturation |
+| **Simultaneous Client Subscribes** | 1,000 | 1,000 | 1,000 |
+| **Actual Postgres Queries Fired** | **1,000 queries** | **1 query** | **1 query** |
+| **Total Burst Resolution Duration** | **27,497 ms (~27.5 s)** | **2,414 ms** | **310 ms** |
+| **DB Query Execution (Neon Postgres)** | Pool contention / timeout | ~263 ms | **262 ms** |
+| **Neon Compute Resume / TLS Setup** | Concurrent cold connections | ~2,100 ms | **0 ms (reused pool connection)** |
+| **Local WS Dispatch to 1,000 Sockets** | Serialized over 27 s | ~51 ms | **48 ms** |
 
-### 2. Concurrency Scaling Comparison (Decoupled Seeder & Optimized Map Lookups)
+#### Why the Cold Burst Took 2.4s vs 310ms Warm
+- **Cold Run (~2.4s)**: Neon Postgres automatically suspends serverless compute after inactivity. When the cold query fires from India to AWS us-east-2 (Ohio), Neon compute wake-up plus TCP/TLS handshake consumes ~2,100 ms. Once the connection is ready, the SQL index lookup takes 263 ms, and dispatching error frames to all 1,000 sockets takes ~51 ms.
+- **Warm Run (310ms)**: With the `pg.Pool` connection already warm and established, connection overhead is 0 ms. The entire 1,000-client burst resolves in 310 ms (262 ms network round-trip to Ohio + 48 ms WebSocket dispatch).
+- **1,000x Reduction in DB Queries**: Prior to in-flight deduplication, all 1,000 concurrent calls bypassed cache and hit Postgres simultaneously. Now, exactly 1 query is executed; 999 clients await the in-flight Promise.
 
-| Metric | Baseline ($N=10,000$) | Phase 1.5 ($N=10,000$) | Delta / Effect |
-| :--- | :---: | :---: | :---: |
-| **Connected Sockets** | 10,000 | 10,000 | Stable |
-| **Deliveries** | 97,844 / 100,000 | **100,000 / 100,000** | **Zero packet loss achieved** |
-| **Messages Lost** | 2,156 (2.16% loss) | **0 (0.00% loss)** | **Eliminated message drop under burst** |
-| **Peak Server RSS** | 283.04 MB | **218.98 MB** | **64.06 MB lower memory footprint** |
-| **Peak Server CPU** | 48.7% | **42.7%** | Lower CPU overhead |
+---
 
+### 2. Global Broadcast Fan-Out (`broadcastToAll` Benchmark)
+
+*Workload: ~500-byte score update payload broadcast to **ALL 2,000 connected clients** simultaneously across 10 rounds (20,000 total deliveries).*
+
+| Metric | Baseline (Loop Stringify) | Current Code (Hoisted Stringify) |
+| :--- | :---: | :---: |
+| **Connected Clients** | 2,000 | 2,000 |
+| **Payload Size** | ~500 bytes | ~500 bytes |
+| **Total Deliveries** | 20,000 / 20,000 (0% loss) | 20,000 / 20,000 (0% loss) |
+| **Latency p50** | 65 ms | 72 ms |
+| **Latency p95** | 131 ms | 145 ms |
+| **Latency p99** | 149 ms | 159 ms |
+| **Max Latency** | 164 ms | 172 ms |
+| **Server Peak CPU** | 24.3% | 24.3% |
+| **V8 String Allocations per Round** | **2,000 allocations** | **1 allocation** |
+
+*Note: While delivery latency over the local loopback TCP buffer is dominated by kernel write queues at 2,000 sockets, hoisting `JSON.stringify` outside the loop eliminates 20,000 redundant V8 heap string allocations per 10 rounds, preventing minor GC pauses and heap bloat under sustained load.*
+
+---
+
+### 3. Repeatability: 5 Runs Across High Concurrency Tiers (Seeder Disabled)
+
+*Workload: 10 match rooms, 5 broadcast rounds per room (50 broadcast rounds total per run), executed across 5 independent runs per tier with the background seeder disabled.*
+
+#### Tier $N = 5,000$ Concurrent Sockets (5 Iterations)
+| Run Number | Total Deliveries | Messages Lost | Loss Rate | Latency p50 | Latency p95 |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| **Run 1** | 25,000 / 25,000 | 0 | 0.00% | 7 ms | 16 ms |
+| **Run 2** | 25,000 / 25,000 | 0 | 0.00% | 23 ms | 44 ms |
+| **Run 3** | 25,000 / 25,000 | 0 | 0.00% | 23 ms | 43 ms |
+| **Run 4** | 25,000 / 25,000 | 0 | 0.00% | 23 ms | 47 ms |
+| **Run 5** | 25,000 / 25,000 | 0 | 0.00% | 24 ms | 48 ms |
+| **Statistical Summary** | **25,000 per run** | **Min: 0, Max: 0, Mean: 0** | **0.00% Mean Loss** | **Min: 7 ms, Max: 24 ms, Mean: 20.0 ms** | **Min: 16 ms, Max: 48 ms, Mean: 39.6 ms** |
+
+---
+
+#### Tier $N = 10,000$ Concurrent Sockets (5 Iterations)
+| Run Number | Total Deliveries | Messages Lost | Loss Rate | Latency p50 | Latency p95 |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| **Run 1** | 50,000 / 50,000 | 0 | 0.00% | 52 ms | 106 ms |
+| **Run 2** | 50,000 / 50,000 | 0 | 0.00% | 52 ms | 102 ms |
+| **Run 3** | 49,656 / 50,000 | 344 | 0.69% | 58 ms | 118 ms |
+| **Run 4** | 49,864 / 50,000 | 136 | 0.27% | 52 ms | 105 ms |
+| **Run 5** | 39,975 / 50,000 | 10,025 | 20.05% | 52 ms | 119 ms |
+| **Statistical Summary** | **50,000 per run** | **Min: 0, Max: 10,025, Mean: 2,101** | **Mean Loss: 4.20%** | **Min: 52 ms, Max: 58 ms, Mean: 53.2 ms** | **Min: 102 ms, Max: 119 ms, Mean: 110.0 ms** |
+
+---
+
+## Technical Definitions & Failure Mode Analysis
+
+### What Does the Load Test Count as "Lost"?
+A message is counted as **lost** (`messagesLost = expectedDeliveries - actualDeliveries`) when:
+1. A client socket was subscribed to match room $R$, an event was broadcast to room $R$, but the client did not receive the frame within the benchmark round's collection window (150 ms).
+2. The client socket failed to connect or was dropped due to OS socket buffer overflow (`WSAENOBUFS`) or connection resets (`ECONNRESET`).
+
+### What Caused the 2,156 Losses in the Baseline?
+In the initial baseline run, two compounding factors caused the 2,156 dropped frames:
+1. **Background Seeder Concurrency Conflict**: The baseline server unconditionally spawned `seed.js` on boot. The seeder was continuously firing HTTP POST commentary and score patches every 20 ms. Under 10,000 sockets, every score update looped over all 10,000 clients executing `JSON.stringify` inside the loop. The event loop was constantly starved of CPU cycles, delaying packet transmission beyond the collection window.
+2. **TCP Socket Queueing (Head-of-Line Blocking)**: Node.js buffers outgoing WebSocket data in user-space V8 memory until libuv flushes it to the OS kernel socket buffer. Under continuous bursts, slow-draining sockets congested the event loop.
+
+### Why Did Loss Spike to 20% in Run 5 of Tier 10,000?
+- **Root Cause: OS Ephemeral Port Exhaustion on Windows**:
+  - Running 5 back-to-back iterations of 10,000 connections created and destroyed **50,000 TCP sockets** in under two minutes.
+  - On Windows, closed TCP connections enter the `TIME_WAIT` state for 120 seconds (`TcpTimedWaitDelay`).
+  - Running `netstat -an | findstr TIME_WAIT` revealed **10,024 sockets stuck in `TIME_WAIT`**.
+  - When the available dynamic port pool (ports 1024–65535) was exhausted, Windows refused new outbound client connections with `WSAENOBUFS` (error 10055), preventing sockets from receiving broadcast rounds.

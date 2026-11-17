@@ -1,0 +1,34 @@
+{
+  "label": "baseline",
+  "timestamp": "2026-11-17T16:27:30.770Z",
+  "globalBroadcast": {
+    "clients": 2000,
+    "rounds": 10,
+    "payloadBytes": 344,
+    "expected": 20000,
+    "actual": 20000,
+    "latency": {
+      "min": -1,
+      "p50": 65,
+      "p95": 131,
+      "p99": 149,
+      "max": 164,
+      "avg": 66.01
+    },
+    "serverPeakCpu": 24.3,
+    "loadGenCpu": 33.4
+  },
+  "subscribeBurst": {
+    "clients": 1000,
+    "cold": {
+      "durationMs": 312,
+      "dbQueryTimeMs": 263,
+      "dbQueriesFired": 1
+    },
+    "warm": {
+      "durationMs": 310,
+      "dbQueryTimeMs": 262,
+      "dbQueriesFired": 1
+    }
+  }
+}

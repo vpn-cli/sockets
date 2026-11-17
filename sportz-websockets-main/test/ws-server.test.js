@@ -499,19 +499,25 @@ describe('WebSocket Server Integration Tests', () => {
             expect(msg1.serverTimestamp).toBe(msg2.serverTimestamp);
         });
 
-        it('Fix 2: getClientIp honors X-Forwarded-For only when TRUST_PROXY is enabled', () => {
-            const spoofedReq = {
-                headers: { 'x-forwarded-for': '198.51.100.42, 10.0.0.1' },
-                socket: { remoteAddress: '10.0.0.1' },
+        it('Fix 2: getClientIp safely extracts trusted proxy hop and ignores client-supplied fake XFF entries', () => {
+            // Scenario A: Direct connection (TRUST_PROXY = false).
+            // Attacker sends forged X-Forwarded-For: 127.0.0.1 to attempt bypass.
+            const directReq = {
+                headers: { 'x-forwarded-for': '127.0.0.1, 8.8.8.8' },
+                socket: { remoteAddress: '203.0.113.50' },
             };
+            expect(getClientIp(directReq, false)).toBe('203.0.113.50');
 
-            // When TRUST_PROXY is false, ignore X-Forwarded-For to prevent rate-limit spoofing
-            const directIp = getClientIp(spoofedReq, false);
-            expect(directIp).toBe('10.0.0.1');
-
-            // When TRUST_PROXY is true (behind Render/ALB), extract real client IP
-            const realClientIp = getClientIp(spoofedReq, true);
-            expect(realClientIp).toBe('198.51.100.42');
+            // Scenario B: Reverse proxy setup (TRUST_PROXY = true, e.g. on Render).
+            // Attacker supplies fake X-Forwarded-For: "127.0.0.1".
+            // Render's reverse proxy appends the real client IP "198.51.100.99" to the header.
+            // Header arriving at Node: "127.0.0.1, 198.51.100.99"
+            const proxiedReqWithForgedEntry = {
+                headers: { 'x-forwarded-for': '127.0.0.1, 198.51.100.99' },
+                socket: { remoteAddress: '10.0.0.2' }, // Render router private IP
+            };
+            // Resolved IP must be the trusted rightmost entry (198.51.100.99), NOT the client's fake 127.0.0.1
+            expect(getClientIp(proxiedReqWithForgedEntry, true)).toBe('198.51.100.99');
         });
 
         it('Fix 3: checkMatchExists dedupes in-flight lookups so 50 concurrent calls invoke DB/lookup function exactly once', async () => {
