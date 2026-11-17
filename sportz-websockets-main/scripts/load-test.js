@@ -197,8 +197,7 @@ class LoadClient {
                             type: msg.type,
                             serverTimestamp: msg.serverTimestamp,
                             receivedAt,
-                            latency: msg.serverTimestamp ? (receivedAt - msg.serverTimestamp) : 0,
-                            data: msg
+                            latency: msg.serverTimestamp ? (receivedAt - msg.serverTimestamp) : 0
                         });
                     }
                 } catch {
@@ -354,10 +353,10 @@ async function runTier(targetConcurrency, matchIds) {
 
             publisher.sendReaction('🔥');
 
-            // Wait 150ms for on-time window
+            // Wait 150ms for on-time SLA window
             await delay(150);
-            // Wait additional 50ms buffer to collect late deliveries (>150ms)
-            await delay(50);
+            // Wait additional 250ms buffer to collect late deliveries (>150ms) without false drops
+            await delay(250);
 
             let roundOntime = 0;
             let roundLate = 0;

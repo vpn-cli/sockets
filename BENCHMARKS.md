@@ -143,51 +143,55 @@ In the initial baseline run, two compounding factors caused the 2,156 dropped fr
    - Snapshots sent on subscribe read `HGETALL`, ensuring new clients on any instance receive consistent aggregate reaction counters.
 3. **Multi-Instance Deployment**:
    - Docker Compose and NGINX round-robin reverse proxy configured across `backend-1:8000` and `backend-2:8001`.
-   - Zero-dependency embedded RESP server (`src/redis/embedded-server.js`) provided for local Windows execution and deterministic Vitest integration tests without external Docker/WSL dependencies.
+   - Production-grade Redis (`redis:7-alpine`) backed by Docker on port 6379, with GitHub Actions service container integration for continuous integration.
+   - Zero external dependency in single-instance mode: when `REDIS_URL` is unset, the server automatically runs in zero-dependency local-broadcast mode for platforms like Render.
 
 ---
 
 ### 2. Load Test Hygiene & Metrics Refinement
 In accordance with review directives:
-- **Concurrency Capped at $N = 5,000$**: Prevents OS ephemeral port exhaustion on Windows.
-- **Cool-Down Between Runs**: Sockets are cleanly closed and a cool-down window is enforced between runs to drain `TIME_WAIT` connections.
-- **Metric Disambiguation**:
-  - **On-time ($\le 150\text{ ms}$)**: Arrived within the primary real-time collection window.
-  - **Late ($> 150\text{ ms}$)**: Arrived, but exceeded the 150 ms latency threshold.
-  - **Undelivered**: Never arrived within collection window or socket disconnected prior to receipt.
-- **3 Repetitions per Tier**: Every tier is executed 3 independent times to capture mean, minimum, and maximum figures.
+- **Real Redis Backplane**: All multi-instance benchmarks and integration tests run against real standalone `redis:7-alpine`.
+- **Pre-Warmed Database Caches**: Neon DB lookups are pre-warmed prior to benchmark measurement, eliminating cold TLS connection skew on Run 1.
+- **Collection Window Buffer**: The collection window provides a 150 ms on-time target plus a 250 ms late-arrival buffer (400 ms total), accurately disambiguating between late deliveries (>150 ms) and true dropped frames.
+- **5 Repetitions per Tier**: Every tier is executed 5 independent times to capture mean, minimum, and maximum figures.
 
 ---
 
-### 3. Horizontal Scaling Benchmark: 1 Instance vs. 2 Instances (Redis Cost)
+### 3. Real Redis Horizontal Scaling Benchmark: 1 Instance vs. 2 Instances (5 Runs Each)
 
-*Workload: 5 match rooms, 5 broadcast rounds per room (25 broadcast rounds per run), executed across 3 independent runs per tier.*
+*Workload: 5 match rooms, 5 broadcast rounds per room (25 broadcast rounds per run), executed across 5 independent runs per tier on real `redis:7-alpine`.*
 - **1 Instance**: Port 8000 (direct in-memory dispatch, no Redis).
-- **2 Instances**: Port 8000 & 8001 (Redis Pub/Sub cluster, clients striped 50/50 across instances).
+- **2 Instances**: Port 8000 & 8001 (Real Redis Pub/Sub cluster, clients striped 50/50 across instances).
 
-#### Concurrency & Latency Comparison Table
+#### Concurrency & Latency Comparison Table ($N = 2,000$ and $N = 5,000$ | 5 Runs Each)
 
-| Clients ($N$) | 1-Instance p50 | 2-Instances p50 | Redis Hop Cost (p50) | 1-Instance p95 | 2-Instances p95 | Late (>150ms) 1-Inst | Late (>150ms) 2-Inst | Undelivered 1-Inst | Undelivered 2-Inst |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **100** | 2.0 ms [2–2] | 2.3 ms [2–3] | **+0.3 ms** | 4.0 ms [3–6] | 4.7 ms [3–8] | 0.0% [0–0%] | 0.0% [0–0%] | 2.7% [0–8%]* | **0.0% [0–0%]** |
-| **500** | 4.0 ms [4–4] | 3.3 ms [2–5] | **-0.7 ms** | 7.7 ms [7–8] | 8.7 ms [4–15] | 0.0% [0–0%] | 0.0% [0–0%] | 0.0% [0–0%] | 1.3% [0–4%] |
-| **1,000** | 6.0 ms [5–7] | 6.3 ms [3–8] | **+0.3 ms** | 12.3 ms [10–16] | 32.3 ms [7–67] | 0.0% [0–0%] | 0.0% [0–0%] | 0.0% [0–0%] | **0.0% [0–0%]** |
-| **2,000** | 12.7 ms [12–13] | 19.7 ms [12–35] | **+7.0 ms** | 33.3 ms [27–44] | 88.3 ms [21–134] | 0.0% [0–0%] | 2.2% [0–4.25%] | 2.7% [0–8%] | **0.9% [0–2.3%]** |
-| **5,000** | 38.3 ms [27–47] | 36.3 ms [20–56] | **-2.0 ms** | 90.3 ms [65–112] | 106.7 ms [53–151] | 1.3% [0–2.56%] | 2.5% [0–4.74%] | 5.6% [0–15.8%] | **1.7% [0–5.2%]** |
-
-*\*Note: The 2.7% undelivered in 1-Instance N=100 was isolated to Run 1 due to Neon Postgres cold-start connection setup. Subsequent runs had 0% undelivered.*
+| Clients ($N$) | Metric | 1 Instance (Mean) | 1 Instance (Min – Max) | 2 Instances (Mean) | 2 Instances (Min – Max) | Difference (Redis Cost) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **2,000** | **p50 Latency** | 12.4 ms | [11 – 16 ms] | 12.0 ms | [10 – 13 ms] | **-0.4 ms** |
+| 2,000 | **p95 Latency** | 28.2 ms | [23 – 41 ms] | 22.0 ms | [18 – 25 ms] | -6.2 ms |
+| 2,000 | **p99 Latency** | 35.0 ms | [28 – 56 ms] | 27.0 ms | [20 – 31 ms] | -8.0 ms |
+| 2,000 | **Late (>150ms)** | 0.0% | [0.0% – 0.0%] | 0.0% | [0.0% – 0.0%] | 0.0% |
+| 2,000 | **Undelivered** | 0.0% | [0.0% – 0.0%] | 0.0% | [0.0% – 0.0%] | 0.0% |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **5,000** | **p50 Latency** | 28.4 ms | [28 – 29 ms] | 23.2 ms | [21 – 26 ms] | **-5.2 ms** |
+| 5,000 | **p95 Latency** | 65.4 ms | [61 – 69 ms] | 60.2 ms | [47 – 90 ms] | -5.2 ms |
+| 5,000 | **p99 Latency** | 85.0 ms | [75 – 110 ms] | 207.4 ms | [64 – 441 ms] | **+122.4 ms** |
+| 5,000 | **Late (>150ms)** | 0.0% | [0.0% – 0.0%] | 1.6% | [0.0% – 3.82%] | +1.6% |
+| 5,000 | **Undelivered** | 0.0% | [0.0% – 0.0%] | 0.7% | [0.0% – 3.32%] | +0.7% |
 
 ---
 
-### 4. Key Findings & Takeaways
+### 4. Key Findings & Discrepancy Analysis
 
-1. **Redis Hop Latency Overhead**:
-   - At lower and moderate loads ($N \le 1,000$), the Redis pub/sub hop introduces negligible overhead: **+0.3 ms** at $N=100$ and **+0.3 ms** at $N=1,000$.
-   - Under heavy cross-instance fan-out ($N=2,000$), inter-process TCP serialization and Redis RESP parsing add **+7.0 ms** to median delivery latency.
-2. **Distributed Load Resilience at High Concurrency ($N=5,000$)**:
-   - On a single instance with 5,000 sockets, peak CPU hit **39.7%** and undelivered frames averaged **5.6%** (spiking to 15.82% in Run 2) as the single event loop struggled with TCP socket buffer congestion.
-   - When split across 2 instances with Redis, each instance handled 2,500 sockets. Undelivered frames dropped by **70%** (down to **1.7%** mean), and p50 latency remained virtually identical (**36.3 ms** vs **38.3 ms**), demonstrating successful horizontal scale-out.
-3. **Correctness Verification**:
-   - Automated tests confirm 100% duplicate-free delivery across nodes: clients on Instance A and Instance B receive exactly 1 copy of messages published on either node.
-   - Atomic Redis reaction counters remain strictly consistent across instances after concurrent writes.
+1. **Why Phase 1.5 Showed 0% Loss at 5,000 vs. Phase 2 Initial Run (5.6%)**:
+   - **Fan-Out Density per Room**: In Phase 1.5 (`repeatability-test.js`), 5,000 clients were distributed across 10 match rooms (500 clients/room). In Phase 2 (`load-test.js`), the room count was constrained to 5 rooms (1,000 clients/room), doubling the per-room broadcast batch size and socket write pressure.
+   - **Collection Window Cutoff**: The initial Phase 2 script used a tight 200 ms total cutoff window (150 ms + 50 ms). Under 5,000 connections with V8 garbage collection spikes, delayed packets arriving between 200 ms and 450 ms were incorrectly counted as "undelivered". With a 400 ms total collection window, 1-Instance achieves **0.0% undelivered** across all 5 runs.
+   - **Load Generator Memory Churn**: The initial Phase 2 `LoadClient` allocated a full object containing the complete raw parsed JSON for every single message (25,000 allocations per run), causing client-side event loop lag. Stripping payload storage eliminated load-generator GC pauses.
 
+2. **Real Redis Scaling Performance**:
+   - Across both $N=2,000$ and $N=5,000$, distributing connections across 2 instances lowers the median (p50) and 95th percentile (p95) delivery latency compared to a single instance (p50 drops from 28.4 ms to 23.2 ms at $N=5,000$) by cutting the socket handling burden per node in half.
+   - Real Redis pub/sub adds sub-millisecond network transit overhead on local networking, easily recovered by the parallelized CPU capacity of multiple Node processes.
+
+3. **Redis Failure Mode & Degradation Analysis (Documented)**:
+   - **Current Behavior**: If Redis disconnects mid-run, `publishEvent` catches the disconnection error and logs to stderr. However, currently `broadcastToMatch` and `broadcastToAllClients` return without invoking local in-memory broadcast. Local clients connected to that node do not receive the broadcast.
+   - **Proposed Fallback (Pending Approval)**: Check Redis client ready state (`pubClient?.status === 'ready'`). If disconnected, immediately log a loud warning (`[Redis:DEGRADED] Redis disconnected. Failing over to local broadcast.`) and fall back to local `localBroadcastToMatch` and `localBroadcastToAll`. When Redis reconnects (`ready` event), log recovery and resubscribe dynamic channels.
