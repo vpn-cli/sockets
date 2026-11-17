@@ -48,3 +48,4 @@ describe('getReconnectDelay', () => {
         expect(getReconnectDelay(-1)).toBe(1000);
     });
 });
+
