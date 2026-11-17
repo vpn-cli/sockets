@@ -625,10 +625,15 @@ describe('WebSocket Server Integration Tests', () => {
 
         beforeEach(async () => {
             // 1. Create ioredis connections for Instance A and Instance B connecting to real Redis
-            pubA = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, enableReadyCheck: false });
-            subA = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, enableReadyCheck: false });
-            pubB = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, enableReadyCheck: false });
-            subB = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+            const redisOpts = {
+                maxRetriesPerRequest: 1,
+                enableReadyCheck: false,
+                retryStrategy: (times) => Math.min(times * 50, 500),
+            };
+            pubA = new Redis(REDIS_URL, redisOpts);
+            subA = new Redis(REDIS_URL, redisOpts);
+            pubB = new Redis(REDIS_URL, redisOpts);
+            subB = new Redis(REDIS_URL, redisOpts);
 
             // Ensure Redis keys for test matches are flushed
             await pubA.del(
@@ -822,6 +827,98 @@ describe('WebSocket Server Integration Tests', () => {
             clientB.send(JSON.stringify({ type: 'subscribe', matchId: 888 }));
             const subConfirm = await awaitMessage(clientB, 'subscribed');
             expect(subConfirm.matchId).toBe(888);
+        });
+
+        it('Phase 2 Correctness 6: Redis failure mid-run severs pub/sub, degrades to local broadcast, logs loudly, and resumes cluster mode after reconnect with backoff', async () => {
+            const clientA1 = await connectWs(wsUrlA);
+            const clientA2 = await connectWs(wsUrlA);
+            const clientB = await connectWs(wsUrlB);
+
+            await awaitMessage(clientA1, 'welcome');
+            await awaitMessage(clientA2, 'welcome');
+            await awaitMessage(clientB, 'welcome');
+
+            // 1. All clients subscribe to match 400
+            for (const c of [clientA1, clientA2, clientB]) {
+                c.send(JSON.stringify({ type: 'subscribe', matchId: 400 }));
+                await awaitMessage(c, 'subscribed');
+                await awaitMessage(c, 'reaction_snapshot');
+            }
+
+            // 2. Normal operation: Instance A broadcast reaches Client B via Redis pub/sub
+            handlesA.broadcastCommentary(400, { text: 'Healthy cluster message via Redis' });
+            const [normalA1, normalA2, normalB] = await Promise.all([
+                awaitMessage(clientA1, 'commentary'),
+                awaitMessage(clientA2, 'commentary'),
+                awaitMessage(clientB, 'commentary'),
+            ]);
+            expect(normalA1.data.text).toBe('Healthy cluster message via Redis');
+            expect(normalA2.data.text).toBe('Healthy cluster message via Redis');
+            expect(normalB.data.text).toBe('Healthy cluster message via Redis');
+
+            // 3. KILL Redis connection mid-run using real Redis CLIENT KILL
+            const admin = new Redis(REDIS_URL);
+            const pubIdA = await pubA.client('id');
+            const subIdA = await subA.client('id');
+
+            // Listen for loud degradation logs
+            const loudLogs = [];
+            const originalConsoleError = console.error;
+            console.error = (...args) => {
+                loudLogs.push(args.join(' '));
+                originalConsoleError(...args);
+            };
+
+            try {
+                // Forcibly sever Instance A's Redis connections
+                await admin.client('kill', 'id', pubIdA);
+                await admin.client('kill', 'id', subIdA);
+
+                // Wait briefly for socket close event to register on pubA/subA
+                await new Promise((r) => setTimeout(r, 30));
+                expect(pubA.status).not.toBe('ready');
+
+                // 4. Mid-run degradation: Instance A broadcasts commentary while Redis is dead
+                handlesA.broadcastCommentary(400, { text: 'Degraded local commentary while Redis is down' });
+
+                // Both local clients on Instance A MUST receive the commentary immediately!
+                const degradedA1 = await awaitMessage(clientA1, 'commentary', 1000);
+                const degradedA2 = await awaitMessage(clientA2, 'commentary', 1000);
+                expect(degradedA1.data.text).toBe('Degraded local commentary while Redis is down');
+                expect(degradedA2.data.text).toBe('Degraded local commentary while Redis is down');
+
+                // Verify loud warning was logged
+                const loggedDegradation = loudLogs.some((log) => log.includes('[REDIS FAILURE]'));
+                expect(loggedDegradation).toBe(true);
+
+                // Local reaction increment also works in degraded mode
+                clientA1.send(JSON.stringify({ type: 'reaction', matchId: 400, emoji: '🔥' }));
+                const rxDegraded = await awaitMessage(clientA1, 'reaction_broadcast', 1000);
+                expect(rxDegraded.counts['🔥']).toBe(1);
+
+                // 5. Reconnection with backoff: Wait for pubA and subA to reconnect to real Redis
+                for (let i = 0; i < 40; i++) {
+                    if (pubA.status === 'ready' && subA.status === 'ready') break;
+                    await new Promise((r) => setTimeout(r, 50));
+                }
+                expect(pubA.status).toBe('ready');
+                expect(subA.status).toBe('ready');
+
+                // Give subA a brief tick to finish channel resubscriptions
+                await new Promise((r) => setTimeout(r, 100));
+
+                // 6. Restored cluster mode: Instance A broadcast reaches Client B again across Redis!
+                handlesA.broadcastCommentary(400, { text: 'Restored cluster commentary after Redis reconnected' });
+                const [restoredA1, restoredB] = await Promise.all([
+                    awaitMessage(clientA1, 'commentary', 2000),
+                    awaitMessage(clientB, 'commentary', 2000),
+                ]);
+                expect(restoredA1.data.text).toBe('Restored cluster commentary after Redis reconnected');
+                expect(restoredB.data.text).toBe('Restored cluster commentary after Redis reconnected');
+            } finally {
+                console.error = originalConsoleError;
+                await admin.quit();
+            }
         });
     });
 

@@ -20,7 +20,7 @@ export function getMatchReactionsKey(matchId) {
  * Initializes Redis connection for Pub/Sub and Reaction storage.
  * If redisUrl is not supplied or fails, degrades gracefully to in-memory.
  */
-export async function initRedis({ redisUrl = process.env.REDIS_URL, retryCount = 3 } = {}) {
+export async function initRedis({ redisUrl = process.env.REDIS_URL, retryCount = 10 } = {}) {
     if (!redisUrl) {
         isInitialized = true;
         redisAvailable = false;
@@ -34,23 +34,56 @@ export async function initRedis({ redisUrl = process.env.REDIS_URL, retryCount =
         pubClient = new Redis(redisUrl, {
             maxRetriesPerRequest: 1,
             retryStrategy: (times) => {
-                if (times > retryCount) return null;
-                return Math.min(times * 100, 1000);
+                if (retryCount !== null && times > retryCount) {
+                    console.error(`🚨 [REDIS FAILURE] Reconnect failed after ${retryCount} attempts. Stopping reconnects.`);
+                    return null;
+                }
+                const delay = Math.min(times * 100, 3000);
+                console.warn(`⏳ [Redis] Reconnecting attempt #${times} in ${delay}ms...`);
+                return delay;
             },
             lazyConnect: true,
         });
 
         subClient = pubClient.duplicate();
 
-        await Promise.all([pubClient.connect(), subClient.connect()]);
+        pubClient.on('connect', () => {
+            console.log('🔌 [Redis Pub] Socket connected');
+        });
+
+        pubClient.on('ready', () => {
+            redisAvailable = true;
+            console.log('✅ [Redis Pub] Ready');
+        });
+
+        pubClient.on('close', () => {
+            if (redisAvailable) {
+                redisAvailable = false;
+                console.error('🚨 [REDIS FAILURE] Redis pub client disconnected! Degrading to local-only broadcast.');
+            }
+        });
 
         pubClient.on('error', (err) => {
-            console.warn('[Redis] Pub client error:', err.message);
+            console.warn('⚠️ [Redis Pub Error]:', err.message);
+        });
+
+        subClient.on('connect', () => {
+            console.log('🔌 [Redis Sub] Socket connected');
+        });
+
+        subClient.on('ready', () => {
+            console.log('✅ [Redis Sub] Ready');
+        });
+
+        subClient.on('close', () => {
+            console.error('🚨 [REDIS FAILURE] Redis sub client disconnected!');
         });
 
         subClient.on('error', (err) => {
-            console.warn('[Redis] Sub client error:', err.message);
+            console.warn('⚠️ [Redis Sub Error]:', err.message);
         });
+
+        await Promise.all([pubClient.connect(), subClient.connect()]);
 
         isInitialized = true;
         redisAvailable = true;
@@ -65,8 +98,9 @@ export async function initRedis({ redisUrl = process.env.REDIS_URL, retryCount =
     }
 }
 
-export function isRedisActive() {
-    return redisAvailable && pubClient !== null && subClient !== null;
+export function isRedisActive(client = pubClient) {
+    const target = client || pubClient;
+    return Boolean(target && target.status === 'ready');
 }
 
 export function getPublisher() {
@@ -80,17 +114,20 @@ export function getSubscriber() {
 const DEFAULT_EMOJI_COUNTS = { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 };
 
 /**
- * Publish payload to a Redis channel
+ * Publish payload to a Redis channel with fallback detection
  */
 export async function publishEvent(channel, payload, client = pubClient) {
     const redis = client || pubClient;
-    if (!redis) return 0;
+    if (!redis || redis.status !== 'ready') {
+        return { success: false, reason: 'Redis not ready' };
+    }
     try {
         const message = typeof payload === 'string' ? payload : JSON.stringify(payload);
-        return await redis.publish(channel, message);
+        const count = await redis.publish(channel, message);
+        return { success: true, count };
     } catch (err) {
-        console.error(`[Redis] Publish to ${channel} failed:`, err.message);
-        return 0;
+        console.error(`🚨 [REDIS FAILURE] Publish to ${channel} failed:`, err.message);
+        return { success: false, error: err.message };
     }
 }
 
@@ -99,7 +136,7 @@ export async function publishEvent(channel, payload, client = pubClient) {
  */
 export async function recordReactionInRedis(matchId, emoji, client = pubClient) {
     const redis = client || pubClient;
-    if (!redis) return null;
+    if (!redis || redis.status !== 'ready') return null;
     const key = getMatchReactionsKey(matchId);
     try {
         await redis.hincrby(key, emoji, 1);
@@ -110,7 +147,7 @@ export async function recordReactionInRedis(matchId, emoji, client = pubClient) 
         }
         return counts;
     } catch (err) {
-        console.error(`[Redis] Reaction increment failed for match ${matchId}:`, err.message);
+        console.error(`🚨 [REDIS FAILURE] Reaction increment failed for match ${matchId}:`, err.message);
         return null;
     }
 }
@@ -120,7 +157,7 @@ export async function recordReactionInRedis(matchId, emoji, client = pubClient) 
  */
 export async function fetchReactionCountsFromRedis(matchId, client = pubClient) {
     const redis = client || pubClient;
-    if (!redis) return null;
+    if (!redis || redis.status !== 'ready') return null;
     const key = getMatchReactionsKey(matchId);
     try {
         const rawCounts = await redis.hgetall(key);
@@ -133,7 +170,7 @@ export async function fetchReactionCountsFromRedis(matchId, client = pubClient) 
         }
         return counts;
     } catch (err) {
-        console.error(`[Redis] Fetch reactions failed for match ${matchId}:`, err.message);
+        console.error(`🚨 [REDIS FAILURE] Fetch reactions failed for match ${matchId}:`, err.message);
         return null;
     }
 }

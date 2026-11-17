@@ -76,8 +76,8 @@ export function attachWebSocketServer(server, {
     const inFlightMatchLookups = new Map();
     const negativeMatchIdsSet = new Set();
 
-    const activePub = enableRedis ? (redisPub || (isRedisActive() ? getPublisher() : null)) : null;
-    const activeSub = enableRedis ? (redisSub || (isRedisActive() ? getSubscriber() : null)) : null;
+    const activePub = enableRedis ? (redisPub || getPublisher()) : null;
+    const activeSub = enableRedis ? (redisSub || getSubscriber()) : null;
 
     function localBroadcastToMatch(matchId, payload) {
         const subscribers = matchSubscribers.get(matchId);
@@ -126,6 +126,14 @@ export function attachWebSocketServer(server, {
                     }
                 }
             } catch {}
+        });
+
+        activeSub.on('ready', () => {
+            console.log('🔄 [Redis Sub] Redis connection ready/restored. Resubscribing active match channels...');
+            activeSub.subscribe(GLOBAL_CHANNEL).catch(() => {});
+            for (const matchId of matchSubscribers.keys()) {
+                activeSub.subscribe(getMatchChannel(matchId)).catch(() => {});
+            }
         });
     }
 
@@ -231,9 +239,21 @@ export function attachWebSocketServer(server, {
     function broadcastToMatch(matchId, payload) {
         const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
 
-        if (activePub) {
-            publishEvent(getMatchChannel(matchId), stamped, activePub);
+        if (activePub && activePub.status === 'ready') {
+            publishEvent(getMatchChannel(matchId), stamped, activePub).then((res) => {
+                if (!res || !res.success) {
+                    console.error(`🚨 [REDIS FAILURE] Failed to publish event for match ${matchId} (${res?.reason || res?.error}). Degrading to local-only broadcast.`);
+                    localBroadcastToMatch(matchId, stamped);
+                }
+            }).catch((err) => {
+                console.error(`🚨 [REDIS FAILURE] Publish exception for match ${matchId}: ${err.message}. Degrading to local-only broadcast.`);
+                localBroadcastToMatch(matchId, stamped);
+            });
             return;
+        }
+
+        if (activePub) {
+            console.error(`🚨 [REDIS FAILURE] Redis pub client is not ready (status: ${activePub.status}). Degrading to local-only broadcast for match ${matchId}.`);
         }
         localBroadcastToMatch(matchId, stamped);
     }
@@ -275,7 +295,7 @@ export function attachWebSocketServer(server, {
             sendJson(socket, { type: 'subscribed', matchId });
 
             let reactionCounts = null;
-            if (activePub) {
+            if (activePub && activePub.status === 'ready') {
                 reactionCounts = await fetchReactionCountsFromRedis(matchId, activePub);
             }
             if (!reactionCounts) {
@@ -301,7 +321,7 @@ export function attachWebSocketServer(server, {
             const emoji = message?.emoji;
             if (typeof emoji === 'string' && ALLOWED_EMOJIS.includes(emoji)) {
                 let counts = null;
-                if (activePub) {
+                if (activePub && activePub.status === 'ready') {
                     counts = await recordReactionInRedis(matchId, emoji, activePub);
                 }
                 if (!counts) {
@@ -420,9 +440,22 @@ export function attachWebSocketServer(server, {
     const broadcastToAllClients = (arg1, arg2) => {
         const payload = arg2 !== undefined ? arg2 : arg1;
         const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
-        if (activePub) {
-            publishEvent(GLOBAL_CHANNEL, stamped, activePub);
+
+        if (activePub && activePub.status === 'ready') {
+            publishEvent(GLOBAL_CHANNEL, stamped, activePub).then((res) => {
+                if (!res || !res.success) {
+                    console.error(`🚨 [REDIS FAILURE] Failed to publish global event (${res?.reason || res?.error}). Degrading to local-only broadcast.`);
+                    localBroadcastToAll(stamped);
+                }
+            }).catch((err) => {
+                console.error(`🚨 [REDIS FAILURE] Global publish exception: ${err.message}. Degrading to local-only broadcast.`);
+                localBroadcastToAll(stamped);
+            });
             return;
+        }
+
+        if (activePub) {
+            console.error(`🚨 [REDIS FAILURE] Redis pub client is not ready (status: ${activePub.status}). Degrading to local-only broadcast.`);
         }
         localBroadcastToAll(stamped);
     };

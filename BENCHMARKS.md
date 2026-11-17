@@ -167,17 +167,17 @@ In accordance with review directives:
 
 | Clients ($N$) | Metric | 1 Instance (Mean) | 1 Instance (Min – Max) | 2 Instances (Mean) | 2 Instances (Min – Max) | Difference (Redis Cost) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **2,000** | **p50 Latency** | 12.4 ms | [11 – 16 ms] | 12.0 ms | [10 – 13 ms] | **-0.4 ms** |
-| 2,000 | **p95 Latency** | 28.2 ms | [23 – 41 ms] | 22.0 ms | [18 – 25 ms] | -6.2 ms |
-| 2,000 | **p99 Latency** | 35.0 ms | [28 – 56 ms] | 27.0 ms | [20 – 31 ms] | -8.0 ms |
-| 2,000 | **Late (>150ms)** | 0.0% | [0.0% – 0.0%] | 0.0% | [0.0% – 0.0%] | 0.0% |
+| **2,000** | **p50 Latency** | 18.0 ms | [17 – 20 ms] | 10.8 ms | [9 – 13 ms] | **-7.2 ms** |
+| 2,000 | **p95 Latency** | 36.2 ms | [32 – 40 ms] | 20.6 ms | [17 – 26 ms] | -15.6 ms |
+| 2,000 | **p99 Latency** | 66.2 ms | [35 – 168 ms] | 43.2 ms | [19 – 114 ms] | -23.0 ms |
+| 2,000 | **Late (>150ms)** | 0.6% | [0.0% – 3.07%] | 0.0% | [0.0% – 0.0%] | -0.6% |
 | 2,000 | **Undelivered** | 0.0% | [0.0% – 0.0%] | 0.0% | [0.0% – 0.0%] | 0.0% |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **5,000** | **p50 Latency** | 28.4 ms | [28 – 29 ms] | 23.2 ms | [21 – 26 ms] | **-5.2 ms** |
-| 5,000 | **p95 Latency** | 65.4 ms | [61 – 69 ms] | 60.2 ms | [47 – 90 ms] | -5.2 ms |
-| 5,000 | **p99 Latency** | 85.0 ms | [75 – 110 ms] | 207.4 ms | [64 – 441 ms] | **+122.4 ms** |
-| 5,000 | **Late (>150ms)** | 0.0% | [0.0% – 0.0%] | 1.6% | [0.0% – 3.82%] | +1.6% |
-| 5,000 | **Undelivered** | 0.0% | [0.0% – 0.0%] | 0.7% | [0.0% – 3.32%] | +0.7% |
+| **5,000** | **p50 Latency** | 39.0 ms | [32 – 44 ms] | 25.8 ms | [21 – 31 ms] | **-13.2 ms** |
+| 5,000 | **p95 Latency** | 81.8 ms | [66 – 88 ms] | 49.8 ms | [44 – 53 ms] | -32.0 ms |
+| 5,000 | **p99 Latency** | 117.8 ms | [83 – 218 ms] | 143.0 ms | [60 – 279 ms] | **+25.2 ms** |
+| 5,000 | **Late (>150ms)** | 0.7% | [0.0% – 3.51%] | 1.0% | [0.0% – 3.4%] | +0.3% |
+| 5,000 | **Undelivered** | 0.0% | [0.0% – 0.0%] | 1.0% | [0.0% – 3.22%] | +1.0% |
 
 ---
 
@@ -189,9 +189,10 @@ In accordance with review directives:
    - **Load Generator Memory Churn**: The initial Phase 2 `LoadClient` allocated a full object containing the complete raw parsed JSON for every single message (25,000 allocations per run), causing client-side event loop lag. Stripping payload storage eliminated load-generator GC pauses.
 
 2. **Real Redis Scaling Performance**:
-   - Across both $N=2,000$ and $N=5,000$, distributing connections across 2 instances lowers the median (p50) and 95th percentile (p95) delivery latency compared to a single instance (p50 drops from 28.4 ms to 23.2 ms at $N=5,000$) by cutting the socket handling burden per node in half.
+   - Across both $N=2,000$ and $N=5,000$, distributing connections across 2 instances lowers the median (p50) and 95th percentile (p95) delivery latency compared to a single instance (p50 drops from 39.0 ms to 25.8 ms at $N=5,000$, and p95 drops from 81.8 ms to 49.8 ms) by cutting the socket handling burden per node in half.
    - Real Redis pub/sub adds sub-millisecond network transit overhead on local networking, easily recovered by the parallelized CPU capacity of multiple Node processes.
 
-3. **Redis Failure Mode & Degradation Analysis (Documented)**:
-   - **Current Behavior**: If Redis disconnects mid-run, `publishEvent` catches the disconnection error and logs to stderr. However, currently `broadcastToMatch` and `broadcastToAllClients` return without invoking local in-memory broadcast. Local clients connected to that node do not receive the broadcast.
-   - **Proposed Fallback (Pending Approval)**: Check Redis client ready state (`pubClient?.status === 'ready'`). If disconnected, immediately log a loud warning (`[Redis:DEGRADED] Redis disconnected. Failing over to local broadcast.`) and fall back to local `localBroadcastToMatch` and `localBroadcastToAll`. When Redis reconnects (`ready` event), log recovery and resubscribe dynamic channels.
+3. **Redis Failure Mode & Degradation (Implemented & Tested)**:
+   - **Degradation Mechanism**: If Redis disconnects mid-run (`pubClient.status !== 'ready'`), `broadcastToMatch` and `broadcastToAllClients` log a loud warning (`🚨 [REDIS FAILURE] ... Degrading to local-only broadcast.`) and immediately fall back to local in-memory broadcast. Local clients connected to the instance continue receiving commentary, score updates, and reactions without drops or unhandled rejections.
+   - **Reconnection with Backoff**: Client uses exponential/linear backoff (`retryStrategy`). Upon reconnection (`ready` event), `subClient` automatically re-synchronizes subscriptions to `GLOBAL_CHANNEL` and all currently active match rooms, seamlessly restoring cluster mode.
+   - **Automated Verification**: Verified via Vitest integration test `Phase 2 Correctness 6`, which uses real Redis `CLIENT KILL` mid-run to sever connections, asserts local degradation during outage, and asserts cross-instance pub/sub recovery upon reconnection.

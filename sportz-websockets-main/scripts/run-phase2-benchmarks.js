@@ -19,7 +19,7 @@ async function waitForHttp(url, timeoutMs = 20000) {
         try {
             const res = await fetch(url);
             if (res.ok) return true;
-        } catch {}
+        } catch { }
         await delay(300);
     }
     throw new Error(`Timeout waiting for ${url}`);
@@ -76,11 +76,11 @@ async function stopProcess(proc) {
         if (process.platform === 'win32') {
             try {
                 execSync(`taskkill /pid ${proc.pid} /f /t`, { stdio: 'ignore' });
-            } catch {}
+            } catch { }
         } else {
             proc.kill('SIGTERM');
         }
-    } catch {}
+    } catch { }
     await delay(1000);
 }
 
@@ -113,7 +113,7 @@ async function main() {
     console.log(`\nVerifying Real Redis connection on ${REDIS_URL}...`);
     try {
         const redisTest = new Redis(REDIS_URL, { connectTimeout: 3000, maxRetriesPerRequest: 1 });
-        redisTest.on('error', () => {});
+        redisTest.on('error', () => { });
         const pong = await redisTest.ping();
         console.log(`✅ Real Redis responded: ${pong}`);
         await redisTest.quit();
@@ -135,7 +135,7 @@ async function main() {
             hasPart1 = true;
             console.log(`\n⏩ Found completed Part 1 baseline in ${singleOutputFile}. Skipping Part 1 (pass --force-part1 to re-run).`);
         }
-    } catch {}
+    } catch { }
 
     if (!hasPart1 && !runPart2Only) {
         console.log(`\n>>> [Part 1/2] Launching Single Instance Server (port 8000, no Redis) <<<`);
@@ -169,7 +169,7 @@ async function main() {
     // Clean up test keys in Redis
     try {
         const cleanupRedis = new Redis(REDIS_URL, { maxRetriesPerRequest: 1 });
-        cleanupRedis.on('error', () => {});
+        cleanupRedis.on('error', () => { });
         const keys = await cleanupRedis.keys('sportz:match:*:reactions');
         if (keys.length > 0) {
             await cleanupRedis.del(...keys);
