@@ -1,0 +1,313 @@
+{
+  "timestamp": "2026-11-17T16:11:07.714Z",
+  "mode": "all",
+  "platform": {
+    "nodeVersion": "v24.15.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "concurrencyTiers": [
+    {
+      "concurrency": 100,
+      "rooms": 10,
+      "connected": 100,
+      "connectionErrors": 0,
+      "errorDetails": {},
+      "connectDurationMs": 2759,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 1000,
+      "actualDeliveries": 1000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 0,
+        "p50": 1,
+        "p95": 1,
+        "p99": 2,
+        "max": 3,
+        "avg": 0.67
+      },
+      "loadGenCpuPercent": 0.7,
+      "serverStats": {
+        "initial": {
+          "cpuPercent": 3.3,
+          "dbQueriesFired": 0,
+          "rssMb": 92.64,
+          "heapUsedMb": 26.92,
+          "heapTotalMb": 28.93
+        },
+        "peak": {
+          "cpuPercent": 2.2,
+          "dbQueriesFired": 10,
+          "rssMb": 99.18,
+          "heapUsedMb": 29.48,
+          "heapTotalMb": 32.52
+        },
+        "afterGc": {
+          "cpuPercent": 4.6,
+          "dbQueriesFired": 10,
+          "rssMb": 99.29,
+          "heapUsedMb": 29.59,
+          "heapTotalMb": 32.52
+        }
+      }
+    },
+    {
+      "concurrency": 500,
+      "rooms": 10,
+      "connected": 500,
+      "connectionErrors": 0,
+      "errorDetails": {},
+      "connectDurationMs": 715,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 5000,
+      "actualDeliveries": 5000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 0,
+        "p50": 2,
+        "p95": 5,
+        "p99": 10,
+        "max": 29,
+        "avg": 2.78
+      },
+      "loadGenCpuPercent": 2.1,
+      "serverStats": {
+        "initial": {
+          "cpuPercent": 0,
+          "dbQueriesFired": 10,
+          "rssMb": 99.08,
+          "heapUsedMb": 27.63,
+          "heapTotalMb": 31.18
+        },
+        "peak": {
+          "cpuPercent": 6.4,
+          "dbQueriesFired": 10,
+          "rssMb": 102.96,
+          "heapUsedMb": 30.37,
+          "heapTotalMb": 32.18
+        },
+        "afterGc": {
+          "cpuPercent": 33.9,
+          "dbQueriesFired": 10,
+          "rssMb": 103.43,
+          "heapUsedMb": 31.28,
+          "heapTotalMb": 35.43
+        }
+      }
+    },
+    {
+      "concurrency": 1000,
+      "rooms": 10,
+      "connected": 1000,
+      "connectionErrors": 0,
+      "errorDetails": {},
+      "connectDurationMs": 1311,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 10000,
+      "actualDeliveries": 10000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 0,
+        "p50": 3,
+        "p95": 8,
+        "p99": 12,
+        "max": 15,
+        "avg": 3.69
+      },
+      "loadGenCpuPercent": 3.9,
+      "serverStats": {
+        "initial": {
+          "cpuPercent": 494.7,
+          "dbQueriesFired": 10,
+          "rssMb": 102.93,
+          "heapUsedMb": 28.01,
+          "heapTotalMb": 35.43
+        },
+        "peak": {
+          "cpuPercent": 10.5,
+          "dbQueriesFired": 10,
+          "rssMb": 112.56,
+          "heapUsedMb": 36.55,
+          "heapTotalMb": 48.68
+        },
+        "afterGc": {
+          "cpuPercent": 31.1,
+          "dbQueriesFired": 10,
+          "rssMb": 114.62,
+          "heapUsedMb": 35.21,
+          "heapTotalMb": 48.93
+        }
+      }
+    },
+    {
+      "concurrency": 2000,
+      "rooms": 10,
+      "connected": 2000,
+      "connectionErrors": 0,
+      "errorDetails": {},
+      "connectDurationMs": 2677,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 20000,
+      "actualDeliveries": 20000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 1,
+        "p50": 7,
+        "p95": 13,
+        "p99": 16,
+        "max": 20,
+        "avg": 6.93
+      },
+      "loadGenCpuPercent": 7.3,
+      "serverStats": {
+        "initial": {
+          "cpuPercent": 114.3,
+          "dbQueriesFired": 10,
+          "rssMb": 114.69,
+          "heapUsedMb": 27.07,
+          "heapTotalMb": 48.68
+        },
+        "peak": {
+          "cpuPercent": 16,
+          "dbQueriesFired": 10,
+          "rssMb": 130.42,
+          "heapUsedMb": 46.52,
+          "heapTotalMb": 68.68
+        },
+        "afterGc": {
+          "cpuPercent": 71.2,
+          "dbQueriesFired": 10,
+          "rssMb": 134.51,
+          "heapUsedMb": 41.67,
+          "heapTotalMb": 68.68
+        }
+      }
+    },
+    {
+      "concurrency": 5000,
+      "rooms": 10,
+      "connected": 5000,
+      "connectionErrors": 0,
+      "errorDetails": {},
+      "connectDurationMs": 7651,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 50000,
+      "actualDeliveries": 50000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 1,
+        "p50": 15,
+        "p95": 32,
+        "p99": 40,
+        "max": 49,
+        "avg": 16.02
+      },
+      "loadGenCpuPercent": 14.5,
+      "serverStats": {
+        "initial": {
+          "cpuPercent": 520,
+          "dbQueriesFired": 10,
+          "rssMb": 134.56,
+          "heapUsedMb": 27.07,
+          "heapTotalMb": 66.18
+        },
+        "peak": {
+          "cpuPercent": 30.1,
+          "dbQueriesFired": 10,
+          "rssMb": 172.05,
+          "heapUsedMb": 68.44,
+          "heapTotalMb": 110.59
+        },
+        "afterGc": {
+          "cpuPercent": 102.5,
+          "dbQueriesFired": 10,
+          "rssMb": 176.22,
+          "heapUsedMb": 66.11,
+          "heapTotalMb": 110.59
+        }
+      }
+    },
+    {
+      "concurrency": 10000,
+      "rooms": 10,
+      "connected": 10000,
+      "connectionErrors": 0,
+      "errorDetails": {},
+      "connectDurationMs": 14907,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 100000,
+      "actualDeliveries": 100000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 0,
+        "p50": 32,
+        "p95": 67,
+        "p99": 82,
+        "max": 101,
+        "avg": 33.02
+      },
+      "loadGenCpuPercent": 31.5,
+      "serverStats": {
+        "initial": {
+          "cpuPercent": 119.2,
+          "dbQueriesFired": 10,
+          "rssMb": 174.29,
+          "heapUsedMb": 31.7,
+          "heapTotalMb": 105.68
+        },
+        "peak": {
+          "cpuPercent": 42.7,
+          "dbQueriesFired": 10,
+          "rssMb": 218.98,
+          "heapUsedMb": 111.05,
+          "heapTotalMb": 192.16
+        },
+        "afterGc": {
+          "cpuPercent": 89.7,
+          "dbQueriesFired": 10,
+          "rssMb": 228.23,
+          "heapUsedMb": 124.23,
+          "heapTotalMb": 192.16
+        }
+      }
+    }
+  ],
+  "globalBroadcast": {
+    "type": "global_broadcast",
+    "clients": 2000,
+    "payloadBytes": 344,
+    "rounds": 10,
+    "expectedTotal": 20000,
+    "receivedTotal": 20000,
+    "latencyMs": {
+      "min": 1,
+      "p50": 64,
+      "p95": 156,
+      "p99": 228,
+      "max": 246,
+      "avg": 69.78
+    },
+    "serverCpuPercent": 41.6,
+    "loadGenCpuPercent": 28.6,
+    "serverMemory": {
+      "cpuPercent": 41.6,
+      "dbQueriesFired": 11,
+      "rssMb": 230.52,
+      "heapUsedMb": 55.66,
+      "heapTotalMb": 193.93
+    }
+  },
+  "coldStartBurst": {
+    "type": "cold_start_subscribe_burst",
+    "clients": 1000,
+    "matchId": 894024,
+    "burstDurationMs": 2414,
+    "dbQueriesFired": 1
+  }
+}

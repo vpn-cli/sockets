@@ -1,5 +1,5 @@
 import { WebSocket, WebSocketServer } from 'ws';
-import { wsArcjet, isLocalhostIp } from "../arcjet.js";
+import { wsArcjet, isLocalhostIp, getClientIp } from "../arcjet.js";
 
 const ALLOWED_EMOJIS = ['🔥', '👏', '⚡', '❤️', '⚽', '🎯'];
 
@@ -11,10 +11,11 @@ function sendJson(socket, payload) {
 
 function broadcastToAll(wss, payload) {
     const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
+    const message = JSON.stringify(stamped);
     for (const client of wss.clients) {
         if(client.readyState !== WebSocket.OPEN) continue;
 
-        client.send(JSON.stringify(stamped));
+        client.send(message);
     }
 }
 
@@ -29,6 +30,16 @@ function parsePositiveInteger(val) {
     return null;
 }
 
+let checkMatchExistsQueryCount = 0;
+
+export function getCheckMatchExistsQueryCount() {
+    return checkMatchExistsQueryCount;
+}
+
+export function resetCheckMatchExistsQueryCount() {
+    checkMatchExistsQueryCount = 0;
+}
+
 export function attachWebSocketServer(server, {
     heartbeatMs = 30000,
     maxSubscriptionsPerSocket = 50,
@@ -37,6 +48,8 @@ export function attachWebSocketServer(server, {
 } = {}) {
     const matchSubscribers = new Map();
     const matchReactions = new Map();
+    const inFlightMatchLookups = new Map();
+    const negativeMatchIdsSet = new Set();
 
     const knownMatchIdsSet = knownMatchIds instanceof Set
         ? knownMatchIds
@@ -45,35 +58,59 @@ export function attachWebSocketServer(server, {
             : new Set();
 
     async function checkMatchExists(matchId) {
-        if (typeof matchExists === 'function') {
-            return await matchExists(matchId);
-        }
-        if (knownMatchIds !== null) {
+        if (knownMatchIds !== null && typeof matchExists !== 'function') {
             return knownMatchIdsSet.has(matchId);
         }
         if (knownMatchIdsSet.has(matchId)) {
             return true;
         }
-        try {
-            if (process.env.DATABASE_URL) {
-                const { db } = await import("../db/db.js");
-                const { matches } = await import("../db/schema.js");
-                const { eq } = await import("drizzle-orm");
-                const [row] = await db
-                    .select({ id: matches.id })
-                    .from(matches)
-                    .where(eq(matches.id, matchId))
-                    .limit(1);
-                if (row) {
-                    knownMatchIdsSet.add(matchId);
-                    return true;
-                }
-                return false;
-            }
-        } catch {
-            // DB not reachable or unconfigured (e.g. tests)
+        if (negativeMatchIdsSet.has(matchId)) {
+            return false;
         }
-        return false;
+
+        // Dedupe in-flight lookups: join pending Promise for this matchId
+        if (inFlightMatchLookups.has(matchId)) {
+            return await inFlightMatchLookups.get(matchId);
+        }
+
+        const lookupPromise = (async () => {
+            if (typeof matchExists === 'function') {
+                const res = await matchExists(matchId);
+                if (res) {
+                    knownMatchIdsSet.add(matchId);
+                } else {
+                    negativeMatchIdsSet.add(matchId);
+                }
+                return res;
+            }
+            try {
+                if (process.env.DATABASE_URL) {
+                    checkMatchExistsQueryCount++;
+                    const { db } = await import("../db/db.js");
+                    const { matches } = await import("../db/schema.js");
+                    const { eq } = await import("drizzle-orm");
+                    const [row] = await db
+                        .select({ id: matches.id })
+                        .from(matches)
+                        .where(eq(matches.id, matchId))
+                        .limit(1);
+                    if (row) {
+                        knownMatchIdsSet.add(matchId);
+                        return true;
+                    }
+                    negativeMatchIdsSet.add(matchId);
+                    return false;
+                }
+            } catch {
+                // DB not reachable or unconfigured (e.g. tests)
+            }
+            return false;
+        })().finally(() => {
+            inFlightMatchLookups.delete(matchId);
+        });
+
+        inFlightMatchLookups.set(matchId, lookupPromise);
+        return await lookupPromise;
     }
 
     function subscribe(matchId, socket) {
@@ -212,10 +249,10 @@ export function attachWebSocketServer(server, {
             return;
         }
 
-        const clientIp = req.socket.remoteAddress;
+        const clientIp = getClientIp(req);
         if (wsArcjet && !isLocalhostIp(clientIp)) {
             try {
-                const decision = await wsArcjet.protect(req);
+                const decision = await wsArcjet.protect(req, { ip: clientIp });
 
                 if (decision.isDenied()) {
                     if (decision.reason.isRateLimit()) {
@@ -308,9 +345,12 @@ export function attachWebSocketServer(server, {
         broadcastToMatch,
         matchSubscribers,
         knownMatchIds: knownMatchIdsSet,
+        checkMatchExists,
         broadcastMatchCreated,
         broadcastCommentary,
         broadcastScoreUpdate,
+        getCheckMatchExistsQueryCount,
+        resetCheckMatchExistsQueryCount,
     };
 }
 

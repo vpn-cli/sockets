@@ -35,3 +35,18 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  seeder:
+    build:
+      context: ./sportz-websockets-main
+      dockerfile: Dockerfile
+    container_name: sportz-seeder
+    restart: unless-stopped
+    command: ["npm", "run", "seed"]
+    environment:
+      - API_URL=http://backend:8000
+      - DATABASE_URL=${DATABASE_URL}
+      - DELAY_MS=${DELAY_MS:-500}
+    depends_on:
+      backend:
+        condition: service_healthy

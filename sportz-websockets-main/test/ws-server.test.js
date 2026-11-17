@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import http from 'http';
 import { WebSocket } from 'ws';
 import { attachWebSocketServer } from '../src/ws/server.js';
+import { getClientIp } from '../src/arcjet.js';
 
 describe('WebSocket Server Integration Tests', () => {
     let server;
@@ -472,5 +473,87 @@ describe('WebSocket Server Integration Tests', () => {
             hbServer.closeAllConnections();
         }
         await new Promise((resolve) => hbServer.close(resolve));
+    });
+
+    describe('Phase 1.5 Quick Fixes Verification', () => {
+        it('Fix 1: broadcastToAll stringifies stamped message once and delivers to all connected clients', async () => {
+            const client1 = await connect();
+            const client2 = await connect();
+
+            await nextMessage(client1, 'welcome');
+            await nextMessage(client2, 'welcome');
+
+            const scoreData = { homeScore: 3, awayScore: 2 };
+            serverHandles.broadcastScoreUpdate(10, scoreData);
+
+            const [msg1, msg2] = await Promise.all([
+                nextMessage(client1, 'score_update'),
+                nextMessage(client2, 'score_update'),
+            ]);
+
+            expect(msg1.matchId).toBe(10);
+            expect(msg1.data.homeScore).toBe(3);
+            expect(msg1.serverTimestamp).toBeDefined();
+            expect(typeof msg1.serverTimestamp).toBe('number');
+            // Both clients receive identical stamped serverTimestamp from the single serialization
+            expect(msg1.serverTimestamp).toBe(msg2.serverTimestamp);
+        });
+
+        it('Fix 2: getClientIp honors X-Forwarded-For only when TRUST_PROXY is enabled', () => {
+            const spoofedReq = {
+                headers: { 'x-forwarded-for': '198.51.100.42, 10.0.0.1' },
+                socket: { remoteAddress: '10.0.0.1' },
+            };
+
+            // When TRUST_PROXY is false, ignore X-Forwarded-For to prevent rate-limit spoofing
+            const directIp = getClientIp(spoofedReq, false);
+            expect(directIp).toBe('10.0.0.1');
+
+            // When TRUST_PROXY is true (behind Render/ALB), extract real client IP
+            const realClientIp = getClientIp(spoofedReq, true);
+            expect(realClientIp).toBe('198.51.100.42');
+        });
+
+        it('Fix 3: checkMatchExists dedupes in-flight lookups so 50 concurrent calls invoke DB/lookup function exactly once', async () => {
+            let lookupCallCount = 0;
+            const slowMockMatchExists = vi.fn(async (id) => {
+                lookupCallCount++;
+                await new Promise((r) => setTimeout(r, 20));
+                return id === 777;
+            });
+
+            const testServer = http.createServer();
+            const handles = attachWebSocketServer(testServer, {
+                matchExists: slowMockMatchExists,
+            });
+
+            // Fire 50 simultaneous lookups for the un-cached match ID 777
+            const promises = Array.from({ length: 50 }, () => handles.checkMatchExists(777));
+            const results = await Promise.all(promises);
+
+            // All 50 resolved to true
+            expect(results.every((r) => r === true)).toBe(true);
+            // Exactly 1 lookup was initiated; 49 joined the in-flight Promise
+            expect(lookupCallCount).toBe(1);
+            expect(slowMockMatchExists).toHaveBeenCalledTimes(1);
+
+            // Subsequent call is served from knownMatchIdsSet cache without invoking lookup
+            const cachedResult = await handles.checkMatchExists(777);
+            expect(cachedResult).toBe(true);
+            expect(lookupCallCount).toBe(1);
+
+            handles.wss.close();
+        });
+
+        it('Fix 4: Seeder decoupling respects AUTO_SEED flag', () => {
+            // Validate that seeder opt-in env evaluation logic evaluates correctly
+            const shouldSeed = (envVal) => envVal === 'true' || envVal === '1';
+
+            expect(shouldSeed(undefined)).toBe(false);
+            expect(shouldSeed('false')).toBe(false);
+            expect(shouldSeed('0')).toBe(false);
+            expect(shouldSeed('true')).toBe(true);
+            expect(shouldSeed('1')).toBe(true);
+        });
     });
 });

@@ -5,6 +5,7 @@ console.log('🚀 Starting Sportz Backend & Frontend concurrently...\n');
 const backend = spawn('npm --prefix sportz-websockets-main run dev', {
   stdio: 'inherit',
   shell: true,
+  env: { ...process.env, AUTO_SEED: 'true' },
 });
 
 const frontend = spawn('npm --prefix sportz-frontend-main run dev', {

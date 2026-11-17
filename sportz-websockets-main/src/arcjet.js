@@ -8,6 +8,17 @@ if (!arcjetKey) {
     console.warn("⚠️ [Arcjet] ARCJET_KEY is missing. Security middleware will run in bypass mode.");
 }
 
+export function getClientIp(req, trustProxy = (process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1')) {
+    if (trustProxy && req?.headers) {
+        const xForwardedFor = req.headers['x-forwarded-for'];
+        if (typeof xForwardedFor === 'string' && xForwardedFor.trim()) {
+            const firstIp = xForwardedFor.split(',')[0].trim();
+            if (firstIp) return firstIp;
+        }
+    }
+    return req?.socket?.remoteAddress || req?.ip || null;
+}
+
 export function isLocalhostIp(ip) {
     if (process.env.BENCHMARK_BYPASS_ARCJET === 'true' || process.env.BENCHMARK_BYPASS_ARCJET === '1') {
         return true;
@@ -45,13 +56,14 @@ export function securityMiddleware() {
     return async (req, res, next) => {
         if (!httpArcjet) return next();
 
+        const clientIp = getClientIp(req);
         // Bypass Arcjet rate limiting for local development and seed workers
-        if (isLocalhostIp(req.ip)) {
+        if (isLocalhostIp(clientIp)) {
             return next();
         }
 
         try {
-            const decision = await httpArcjet.protect(req);
+            const decision = await httpArcjet.protect(req, { ip: clientIp });
 
             if (decision.isDenied()) {
                 if (decision.reason.isRateLimit()) {
