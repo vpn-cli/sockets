@@ -1,0 +1,172 @@
+{
+  "timestamp": "2026-11-17T15:57:14.774Z",
+  "targetWs": "ws://127.0.0.1:8000/ws",
+  "targetApi": "http://127.0.0.1:8000",
+  "platform": {
+    "nodeVersion": "v24.15.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "results": [
+    {
+      "concurrency": 100,
+      "rooms": 10,
+      "connected": 100,
+      "connectionErrors": 0,
+      "connectDurationMs": 3787,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 1000,
+      "actualDeliveries": 1000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 0,
+        "p50": 1,
+        "p95": 2,
+        "p99": 4,
+        "max": 6,
+        "avg": 1.16
+      },
+      "serverMemoryMb": {
+        "initial": {
+          "cpuPercent": 6.3,
+          "rssMb": 93.61,
+          "heapUsedMb": 28.42,
+          "heapTotalMb": 30.43
+        },
+        "peak": {
+          "cpuPercent": 4.4,
+          "rssMb": 98.04,
+          "heapUsedMb": 30.74,
+          "heapTotalMb": 33.18
+        },
+        "after": {
+          "cpuPercent": 6.1,
+          "rssMb": 98.54,
+          "heapUsedMb": 30.75,
+          "heapTotalMb": 35.93
+        }
+      }
+    },
+    {
+      "concurrency": 500,
+      "rooms": 10,
+      "connected": 500,
+      "connectionErrors": 0,
+      "connectDurationMs": 1292,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 5000,
+      "actualDeliveries": 5000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 0,
+        "p50": 3,
+        "p95": 5,
+        "p99": 7,
+        "max": 10,
+        "avg": 2.66
+      },
+      "serverMemoryMb": {
+        "initial": {
+          "cpuPercent": 0,
+          "rssMb": 98.54,
+          "heapUsedMb": 30.81,
+          "heapTotalMb": 35.93
+        },
+        "peak": {
+          "cpuPercent": 8.2,
+          "rssMb": 107.54,
+          "heapUsedMb": 35.89,
+          "heapTotalMb": 50.43
+        },
+        "after": {
+          "cpuPercent": 22.7,
+          "rssMb": 112.41,
+          "heapUsedMb": 36.94,
+          "heapTotalMb": 50.68
+        }
+      }
+    },
+    {
+      "concurrency": 1000,
+      "rooms": 10,
+      "connected": 1000,
+      "connectionErrors": 0,
+      "connectDurationMs": 1728,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 10000,
+      "actualDeliveries": 10000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 0,
+        "p50": 3,
+        "p95": 6,
+        "p99": 8,
+        "max": 10,
+        "avg": 3.01
+      },
+      "serverMemoryMb": {
+        "initial": {
+          "cpuPercent": 0,
+          "rssMb": 112.47,
+          "heapUsedMb": 36.99,
+          "heapTotalMb": 50.68
+        },
+        "peak": {
+          "cpuPercent": 10.9,
+          "rssMb": 129.91,
+          "heapUsedMb": 40.01,
+          "heapTotalMb": 67.43
+        },
+        "after": {
+          "cpuPercent": 42.4,
+          "rssMb": 131.55,
+          "heapUsedMb": 39.65,
+          "heapTotalMb": 69.18
+        }
+      }
+    },
+    {
+      "concurrency": 2000,
+      "rooms": 10,
+      "connected": 2000,
+      "connectionErrors": 0,
+      "connectDurationMs": 3458,
+      "broadcastRounds": 10,
+      "expectedDeliveries": 20000,
+      "actualDeliveries": 20000,
+      "messagesLost": 0,
+      "lossRatePercent": 0,
+      "latencyMs": {
+        "min": 0,
+        "p50": 6,
+        "p95": 12,
+        "p99": 14,
+        "max": 17,
+        "avg": 5.67
+      },
+      "serverMemoryMb": {
+        "initial": {
+          "cpuPercent": 0,
+          "rssMb": 131.56,
+          "heapUsedMb": 39.7,
+          "heapTotalMb": 69.18
+        },
+        "peak": {
+          "cpuPercent": 17.6,
+          "rssMb": 113.38,
+          "heapUsedMb": 38.75,
+          "heapTotalMb": 47.43
+        },
+        "after": {
+          "cpuPercent": 60.1,
+          "rssMb": 121.17,
+          "heapUsedMb": 38.18,
+          "heapTotalMb": 55.93
+        }
+      }
+    }
+  ]
+}

@@ -9,6 +9,9 @@ if (!arcjetKey) {
 }
 
 export function isLocalhostIp(ip) {
+    if (process.env.BENCHMARK_BYPASS_ARCJET === 'true' || process.env.BENCHMARK_BYPASS_ARCJET === '1') {
+        return true;
+    }
     return (
         !ip ||
         ip === '127.0.0.1' ||

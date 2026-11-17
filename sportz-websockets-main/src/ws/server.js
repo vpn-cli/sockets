@@ -10,10 +10,11 @@ function sendJson(socket, payload) {
 }
 
 function broadcastToAll(wss, payload) {
+    const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
     for (const client of wss.clients) {
         if(client.readyState !== WebSocket.OPEN) continue;
 
-        client.send(JSON.stringify(payload));
+        client.send(JSON.stringify(stamped));
     }
 }
 
@@ -105,7 +106,8 @@ export function attachWebSocketServer(server, {
         const subscribers = matchSubscribers.get(matchId);
         if(!subscribers || subscribers.size === 0) return;
 
-        const message = JSON.stringify(payload);
+        const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
+        const message = JSON.stringify(stamped);
 
         for(const client of subscribers) {
             if(client.readyState === WebSocket.OPEN) {

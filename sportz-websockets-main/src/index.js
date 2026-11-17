@@ -29,8 +29,32 @@ app.get('/', (req, res) => {
     res.send('Hello from Sportz Express server!');
 });
 
+let lastCpuUsage = process.cpuUsage();
+let lastCpuTime = Date.now();
+
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    const mem = process.memoryUsage();
+    const currentCpu = process.cpuUsage();
+    const currentTime = Date.now();
+    const elapsedMs = Math.max(1, currentTime - lastCpuTime);
+    const userDiffMs = (currentCpu.user - lastCpuUsage.user) / 1000;
+    const sysDiffMs = (currentCpu.system - lastCpuUsage.system) / 1000;
+    const cpuPercent = Number((((userDiffMs + sysDiffMs) / elapsedMs) * 100).toFixed(1));
+
+    lastCpuUsage = currentCpu;
+    lastCpuTime = currentTime;
+
+    res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        cpuPercent,
+        memory: {
+            rssMb: Number((mem.rss / (1024 * 1024)).toFixed(2)),
+            heapUsedMb: Number((mem.heapUsed / (1024 * 1024)).toFixed(2)),
+            heapTotalMb: Number((mem.heapTotal / (1024 * 1024)).toFixed(2)),
+        },
+        uptime: process.uptime(),
+    });
 });
 
 app.use(securityMiddleware());
