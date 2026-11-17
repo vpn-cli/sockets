@@ -11,6 +11,17 @@ jobs:
     name: Build & Verify
     runs-on: ubuntu-latest
 
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -22,6 +33,8 @@ jobs:
         
     - name: Verify Backend (Node.js/Express)
       working-directory: ./sportz-websockets-main
+      env:
+        REDIS_URL: redis://127.0.0.1:6379
       run: |
         npm install
         npm test

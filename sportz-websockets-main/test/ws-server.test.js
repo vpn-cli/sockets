@@ -3,7 +3,6 @@ import http from 'http';
 import { WebSocket } from 'ws';
 import { attachWebSocketServer } from '../src/ws/server.js';
 import { getClientIp } from '../src/arcjet.js';
-import { createEmbeddedRedisServer } from '../src/redis/embedded-server.js';
 import Redis from 'ioredis';
 
 describe('WebSocket Server Integration Tests', () => {
@@ -565,9 +564,8 @@ describe('WebSocket Server Integration Tests', () => {
         });
     });
 
-    describe('Phase 2 Horizontal Scaling Tests (Redis Pub/Sub & Distributed Reactions)', () => {
-        let redisServer;
-        const REDIS_PORT = 6398;
+    describe('Phase 2 Horizontal Scaling Tests (Real Redis Pub/Sub & Distributed Reactions)', () => {
+        const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
         let serverA, serverB;
         let wsUrlA, wsUrlB;
         let handlesA, handlesB;
@@ -626,18 +624,22 @@ describe('WebSocket Server Integration Tests', () => {
         }
 
         beforeEach(async () => {
-            // 1. Start embedded Redis server
-            redisServer = createEmbeddedRedisServer(REDIS_PORT);
-            await redisServer.listen();
+            // 1. Create ioredis connections for Instance A and Instance B connecting to real Redis
+            pubA = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+            subA = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+            pubB = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+            subB = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, enableReadyCheck: false });
 
-            // 2. Create ioredis connections for Instance A and Instance B
-            const redisUrl = `redis://127.0.0.1:${REDIS_PORT}`;
-            pubA = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableReadyCheck: false });
-            subA = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableReadyCheck: false });
-            pubB = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableReadyCheck: false });
-            subB = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+            // Ensure Redis keys for test matches are flushed
+            await pubA.del(
+                'sportz:match:100:reactions',
+                'sportz:match:200:reactions',
+                'sportz:match:300:reactions',
+                'sportz:match:400:reactions',
+                'sportz:match:888:reactions'
+            );
 
-            // 3. Create HTTP servers for Instance A and Instance B
+            // 2. Create HTTP servers for Instance A and Instance B
             serverA = http.createServer();
             serverB = http.createServer();
 
@@ -669,6 +671,19 @@ describe('WebSocket Server Integration Tests', () => {
             }
             phase2Clients.clear();
 
+            // Clean up test keys
+            if (pubA) {
+                try {
+                    await pubA.del(
+                        'sportz:match:100:reactions',
+                        'sportz:match:200:reactions',
+                        'sportz:match:300:reactions',
+                        'sportz:match:400:reactions',
+                        'sportz:match:888:reactions'
+                    );
+                } catch {}
+            }
+
             // Close Redis connections
             if (pubA) { try { await pubA.quit(); } catch {} }
             if (subA) { try { await subA.quit(); } catch {} }
@@ -678,11 +693,6 @@ describe('WebSocket Server Integration Tests', () => {
             // Close HTTP servers
             await new Promise((resolve) => serverA.close(resolve));
             await new Promise((resolve) => serverB.close(resolve));
-
-            // Close embedded Redis server
-            if (redisServer) {
-                await redisServer.close();
-            }
         });
 
         it('Phase 2 Correctness 1: client on Instance A receives commentary published on Instance B via Redis pub/sub', async () => {
@@ -812,6 +822,132 @@ describe('WebSocket Server Integration Tests', () => {
             clientB.send(JSON.stringify({ type: 'subscribe', matchId: 888 }));
             const subConfirm = await awaitMessage(clientB, 'subscribed');
             expect(subConfirm.matchId).toBe(888);
+        });
+    });
+
+    describe('Single-Instance Local Broadcast Mode (Redis Optional / REDIS_URL Unset)', () => {
+        let server;
+        let wsUrl;
+        let handles;
+        const localClients = new Set();
+
+        function connectWs(url) {
+            return new Promise((resolve, reject) => {
+                const client = new WebSocket(url);
+                client._messageQueue = [];
+                client._waiters = [];
+
+                client.on('message', (data) => {
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(data.toString());
+                    } catch {
+                        parsed = { raw: data.toString() };
+                    }
+
+                    const waiterIndex = client._waiters.findIndex((w) => !w.type || w.type === parsed.type);
+                    if (waiterIndex !== -1) {
+                        const [waiter] = client._waiters.splice(waiterIndex, 1);
+                        clearTimeout(waiter.timer);
+                        waiter.resolve(parsed);
+                    } else {
+                        client._messageQueue.push(parsed);
+                    }
+                });
+
+                client.on('open', () => {
+                    localClients.add(client);
+                    resolve(client);
+                });
+
+                client.on('error', reject);
+            });
+        }
+
+        function awaitMessage(client, expectedType, timeoutMs = 2000) {
+            return new Promise((resolve, reject) => {
+                const queuedIndex = client._messageQueue.findIndex((m) => !expectedType || m.type === expectedType);
+                if (queuedIndex !== -1) {
+                    const [msg] = client._messageQueue.splice(queuedIndex, 1);
+                    return resolve(msg);
+                }
+
+                const timer = setTimeout(() => {
+                    const idx = client._waiters.findIndex((w) => w.timer === timer);
+                    if (idx !== -1) client._waiters.splice(idx, 1);
+                    reject(new Error(`Timed out after ${timeoutMs}ms waiting for type: ${expectedType}`));
+                }, timeoutMs);
+
+                client._waiters.push({ type: expectedType, resolve, reject, timer });
+            });
+        }
+
+        beforeEach(async () => {
+            server = http.createServer();
+            // Attached with enableRedis: false simulating REDIS_URL unset mode
+            handles = attachWebSocketServer(server, {
+                heartbeatMs: 60000,
+                knownMatchIds: [501, 502],
+                enableRedis: false,
+            });
+
+            await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+            wsUrl = `ws://127.0.0.1:${server.address().port}/ws`;
+        });
+
+        afterEach(async () => {
+            for (const c of localClients) {
+                try { c.terminate(); } catch {}
+            }
+            localClients.clear();
+            await new Promise((resolve) => server.close(resolve));
+        });
+
+        it('Phase 2 Correctness 5: server functions 100% in local-broadcast mode when Redis is not configured', async () => {
+            const client1 = await connectWs(wsUrl);
+            const client2 = await connectWs(wsUrl);
+
+            await awaitMessage(client1, 'welcome');
+            await awaitMessage(client2, 'welcome');
+
+            // 1. Both clients subscribe to match 501 locally
+            client1.send(JSON.stringify({ type: 'subscribe', matchId: 501 }));
+            await awaitMessage(client1, 'subscribed');
+            const initialSnapshot = await awaitMessage(client1, 'reaction_snapshot');
+            expect(initialSnapshot.counts['🔥']).toBe(0);
+
+            client2.send(JSON.stringify({ type: 'subscribe', matchId: 501 }));
+            await awaitMessage(client2, 'subscribed');
+            await awaitMessage(client2, 'reaction_snapshot');
+
+            // 2. Commentary broadcast works in local mode
+            handles.broadcastCommentary(501, { text: 'Local match commentary without Redis!' });
+            const comm1 = await awaitMessage(client1, 'commentary');
+            const comm2 = await awaitMessage(client2, 'commentary');
+            expect(comm1.data.text).toBe('Local match commentary without Redis!');
+            expect(comm2.data.text).toBe('Local match commentary without Redis!');
+
+            // 3. Emoji reaction increments local in-memory counter and broadcasts locally
+            client1.send(JSON.stringify({ type: 'reaction', matchId: 501, emoji: '🔥' }));
+            const rx1 = await awaitMessage(client1, 'reaction_broadcast');
+            const rx2 = await awaitMessage(client2, 'reaction_broadcast');
+            expect(rx1.counts['🔥']).toBe(1);
+            expect(rx2.counts['🔥']).toBe(1);
+
+            // 4. Global score update broadcast reaches all clients locally
+            handles.broadcastScoreUpdate(501, { home: 1, away: 0 });
+            const score1 = await awaitMessage(client1, 'score_update');
+            const score2 = await awaitMessage(client2, 'score_update');
+            expect(score1.data.home).toBe(1);
+            expect(score2.data.home).toBe(1);
+
+            // 5. Late joining client receives accurate local reaction snapshot
+            const client3 = await connectWs(wsUrl);
+            await awaitMessage(client3, 'welcome');
+            client3.send(JSON.stringify({ type: 'subscribe', matchId: 501 }));
+            await awaitMessage(client3, 'subscribed');
+            const snap3 = await awaitMessage(client3, 'reaction_snapshot');
+            expect(snap3.counts['🔥']).toBe(1);
         });
     });
 });

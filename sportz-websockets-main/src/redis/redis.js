@@ -21,13 +21,12 @@ export function getMatchReactionsKey(matchId) {
  * If redisUrl is not supplied or fails, degrades gracefully to in-memory.
  */
 export async function initRedis({ redisUrl = process.env.REDIS_URL, retryCount = 3 } = {}) {
-    if (!redisUrl && process.env.NODE_ENV !== 'test') {
-        // Default to localhost:6379 if in production / explicit cluster mode
-        redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-    }
-
     if (!redisUrl) {
+        isInitialized = true;
         redisAvailable = false;
+        pubClient = null;
+        subClient = null;
+        console.log('ℹ️ [Redis] REDIS_URL not configured. Running in single-instance local-broadcast mode.');
         return { enabled: false };
     }
 
