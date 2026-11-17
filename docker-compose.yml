@@ -11,8 +11,8 @@ services:
       - PORT=8000
       - HOST=0.0.0.0
       - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL:-postgresql://neondb_owner:npg_aRFK2A1QjrIy@ep-blue-meadow-b4adhcjq-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require}
-      - ARCJET_KEY=${ARCJET_KEY:-ajkey_01m0qt0qpde9rbr4e4gtp45yks}
+      - DATABASE_URL=${DATABASE_URL}
+      - ARCJET_KEY=${ARCJET_KEY}
       - ARCJET_ENV=${ARCJET_ENV:-development}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     healthcheck:
