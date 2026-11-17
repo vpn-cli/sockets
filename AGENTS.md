@@ -1,40 +1,46 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Sportz: Real-Time Sports Event Streaming Platform
 
-# This is NOT the Next.js you know
+Agent instructions and architectural reference for the Sportz codebase.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+## Technology Stack
 
-<!-- END:nextjs-agent-rules -->
+- **Frontend (`sportz-frontend-main`)**: React 19, TypeScript, Vite, Tailwind CSS.
+- **Backend (`sportz-websockets-main`)**: Node.js (ESM), Express 5, `ws` (native WebSockets), Arcjet security/rate-limiting.
+- **Database & ORM**: PostgreSQL (hosted on Neon with connection pooling) via Drizzle ORM (`drizzle-orm`, `drizzle-kit`).
+- **Testing**: Vitest for both backend WebSocket integration tests and frontend hooks/utilities unit tests.
+- **Background Worker**: Standalone Node.js seeder (`src/seed/seed.js`) generating high-frequency match events.
 
-## Read Before Anything Else
+## Architecture & Real-Time Flow
 
-Read in this exact order before any implementation:
+```
+[React 19 / Vite UI] <== (WebSockets: ws://host:8000/ws) ==> [Express + ws Server]
+                                                                    ^
+                                                              (HTTP POST /matches)
+                                                                    |
+                                                          [Background Seeder Worker]
+                                                                    |
+                                                           [Drizzle ORM / Neon DB]
+```
 
-1. context/project-overview.md
-2. context/architecture.md
-3. context/ui-tokens.md
-4. context/ui-rules.md
-5. context/ui-registry.md
-6. context/code-standards.md
-7. context/library-docs.md
-8. context/build-plan.md
-9. context/progress-tracker.md
+1. **REST Endpoints (`/matches`, `/matches/:id/commentary`)**: Express routes for fetching matches and inserting events.
+2. **WebSocket Server (`src/ws/server.js`)**: Upgrades HTTP connections to `/ws`. Handles subscriptions (`subscribe`, `unsubscribe`, `ping`), emoji reactions, and live broadcasts (`commentary`, `score_update`, `match_created`).
+3. **Heartbeat & Protection**: Heartbeat interval terminates unresponsive sockets; Arcjet protects against abuse (bypassed on localhost/127.0.0.1).
 
-## Rules That Never Change
+## Essential Commands
 
-- Never use hardcoded hex values or raw Tailwind color classes
-- Update `progress-tracker.md` and `ui-registry.md` after every feature
-- Before any third party library — load its installed skill first,
-  then read `context/library-docs.md` for project-specific rules
-- If the same problem persists after one corrective prompt —
-  stop immediately and run /recover
-- **AI Integration Workflow**: When working on Gemini Copilot endpoints, explicitly ensure the System Prompts heavily constrain the AI to outputting strict JSON conforming to our registry, never raw JSX code.
+From workspace root:
+- `npm run dev` - Start backend and frontend simultaneously with live reloading.
+- `npm test` - Run full Vitest test suites for both backend and frontend.
+- `npm run build` - Build the production frontend distribution.
+- `npm run seed` - Run the simulated event seeder worker.
+- `npm run db:migrate` - Execute Drizzle migrations against Neon DB.
 
-## Available Skills
+Component-specific:
+- Backend tests: `npm --prefix sportz-websockets-main test`
+- Frontend tests: `npm --prefix sportz-frontend-main test`
 
-- `/architect` — before any complex feature. Think before building.
-- `/imprint` — after any new UI component. Capture patterns.
-- `/review` — before demo or when something feels off.
-- `/recover` — when something breaks after one failed correction.
-- `/remember save` — when a feature spans multiple sessions.
-- `/remember restore` — when returning after a multi-session feature.
+## Development & Testing Rules
+
+- Keep tests fast and completely DB-independent by injecting or mocking database access.
+- When modifying WebSocket logic, always verify heartbeat intervals, connection teardown, and subscription cleanup.
+- Keep commits small, frequent, and well-described using Conventional Commits (`feat:`, `fix:`, `refactor:`, `test:`, `chore:`).

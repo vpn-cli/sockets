@@ -239,6 +239,44 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
+### Root Workspace Commands
+
+You can run and test both services directly from the workspace root:
+
+```bash
+# Start backend and frontend simultaneously
+npm run dev
+
+# Run full Vitest test suites (backend integration + frontend unit tests)
+npm test
+
+# Build production frontend
+npm run build
+
+# Run database migrations
+npm run db:migrate
+
+# Seed simulated match data
+npm run seed
+```
+
+### Running Test Suites
+
+Sportz uses **Vitest** for fast, reliable testing without requiring real database credentials:
+
+```bash
+# Run all tests across the workspace
+npm test
+
+# Run backend WebSocket integration tests (spawns real ephemeral ws servers)
+npm --prefix sportz-websockets-main test
+
+# Run frontend unit tests (reconnect backoff and utilities)
+npm --prefix sportz-frontend-main test
+```
+
+---
+
 ## 📡 API Reference
 
 ### REST Endpoints
