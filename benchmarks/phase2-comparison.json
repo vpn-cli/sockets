@@ -1,0 +1,82 @@
+[
+  {
+    "concurrency": 100,
+    "singleInstance": {
+      "p50": 2,
+      "p95": 4,
+      "lateRate": "0%",
+      "undeliveredRate": "2.7%"
+    },
+    "twoInstancesRedis": {
+      "p50": 2.3,
+      "p95": 4.7,
+      "lateRate": "0%",
+      "undeliveredRate": "0%"
+    },
+    "redisHopCostP50Ms": 0.3
+  },
+  {
+    "concurrency": 500,
+    "singleInstance": {
+      "p50": 4,
+      "p95": 7.7,
+      "lateRate": "0%",
+      "undeliveredRate": "0%"
+    },
+    "twoInstancesRedis": {
+      "p50": 3.3,
+      "p95": 8.7,
+      "lateRate": "0%",
+      "undeliveredRate": "1.3%"
+    },
+    "redisHopCostP50Ms": -0.7
+  },
+  {
+    "concurrency": 1000,
+    "singleInstance": {
+      "p50": 6,
+      "p95": 12.3,
+      "lateRate": "0%",
+      "undeliveredRate": "0%"
+    },
+    "twoInstancesRedis": {
+      "p50": 6.3,
+      "p95": 32.3,
+      "lateRate": "0%",
+      "undeliveredRate": "0%"
+    },
+    "redisHopCostP50Ms": 0.3
+  },
+  {
+    "concurrency": 2000,
+    "singleInstance": {
+      "p50": 12.7,
+      "p95": 33.3,
+      "lateRate": "0%",
+      "undeliveredRate": "2.7%"
+    },
+    "twoInstancesRedis": {
+      "p50": 19.7,
+      "p95": 88.3,
+      "lateRate": "2.2%",
+      "undeliveredRate": "0.9%"
+    },
+    "redisHopCostP50Ms": 7
+  },
+  {
+    "concurrency": 5000,
+    "singleInstance": {
+      "p50": 38.3,
+      "p95": 90.3,
+      "lateRate": "1.3%",
+      "undeliveredRate": "5.6%"
+    },
+    "twoInstancesRedis": {
+      "p50": 36.3,
+      "p95": 106.7,
+      "lateRate": "2.5%",
+      "undeliveredRate": "1.7%"
+    },
+    "redisHopCostP50Ms": -2
+  }
+]

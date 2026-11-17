@@ -3,6 +3,8 @@ import http from 'http';
 import { WebSocket } from 'ws';
 import { attachWebSocketServer } from '../src/ws/server.js';
 import { getClientIp } from '../src/arcjet.js';
+import { createEmbeddedRedisServer } from '../src/redis/embedded-server.js';
+import Redis from 'ioredis';
 
 describe('WebSocket Server Integration Tests', () => {
     let server;
@@ -560,6 +562,256 @@ describe('WebSocket Server Integration Tests', () => {
             expect(shouldSeed('0')).toBe(false);
             expect(shouldSeed('true')).toBe(true);
             expect(shouldSeed('1')).toBe(true);
+        });
+    });
+
+    describe('Phase 2 Horizontal Scaling Tests (Redis Pub/Sub & Distributed Reactions)', () => {
+        let redisServer;
+        const REDIS_PORT = 6398;
+        let serverA, serverB;
+        let wsUrlA, wsUrlB;
+        let handlesA, handlesB;
+        let pubA, subA, pubB, subB;
+        const phase2Clients = new Set();
+
+        function connectWs(url) {
+            return new Promise((resolve, reject) => {
+                const client = new WebSocket(url);
+                client._messageQueue = [];
+                client._waiters = [];
+
+                client.on('message', (data) => {
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(data.toString());
+                    } catch {
+                        parsed = { raw: data.toString() };
+                    }
+
+                    const waiterIndex = client._waiters.findIndex((w) => !w.type || w.type === parsed.type);
+                    if (waiterIndex !== -1) {
+                        const [waiter] = client._waiters.splice(waiterIndex, 1);
+                        clearTimeout(waiter.timer);
+                        waiter.resolve(parsed);
+                    } else {
+                        client._messageQueue.push(parsed);
+                    }
+                });
+
+                client.on('open', () => {
+                    phase2Clients.add(client);
+                    resolve(client);
+                });
+
+                client.on('error', reject);
+            });
+        }
+
+        function awaitMessage(client, expectedType, timeoutMs = 2000) {
+            return new Promise((resolve, reject) => {
+                const queuedIndex = client._messageQueue.findIndex((m) => !expectedType || m.type === expectedType);
+                if (queuedIndex !== -1) {
+                    const [msg] = client._messageQueue.splice(queuedIndex, 1);
+                    return resolve(msg);
+                }
+
+                const timer = setTimeout(() => {
+                    const idx = client._waiters.findIndex((w) => w.timer === timer);
+                    if (idx !== -1) client._waiters.splice(idx, 1);
+                    reject(new Error(`Timed out after ${timeoutMs}ms waiting for type: ${expectedType}`));
+                }, timeoutMs);
+
+                client._waiters.push({ type: expectedType, resolve, reject, timer });
+            });
+        }
+
+        beforeEach(async () => {
+            // 1. Start embedded Redis server
+            redisServer = createEmbeddedRedisServer(REDIS_PORT);
+            await redisServer.listen();
+
+            // 2. Create ioredis connections for Instance A and Instance B
+            const redisUrl = `redis://127.0.0.1:${REDIS_PORT}`;
+            pubA = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+            subA = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+            pubB = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+            subB = new Redis(redisUrl, { maxRetriesPerRequest: 1, enableReadyCheck: false });
+
+            // 3. Create HTTP servers for Instance A and Instance B
+            serverA = http.createServer();
+            serverB = http.createServer();
+
+            handlesA = attachWebSocketServer(serverA, {
+                heartbeatMs: 60000,
+                knownMatchIds: [100, 200, 300, 400],
+                redisPub: pubA,
+                redisSub: subA,
+            });
+
+            handlesB = attachWebSocketServer(serverB, {
+                heartbeatMs: 60000,
+                knownMatchIds: [100, 200, 300, 400],
+                redisPub: pubB,
+                redisSub: subB,
+            });
+
+            await new Promise((resolve) => serverA.listen(0, '127.0.0.1', resolve));
+            await new Promise((resolve) => serverB.listen(0, '127.0.0.1', resolve));
+
+            wsUrlA = `ws://127.0.0.1:${serverA.address().port}/ws`;
+            wsUrlB = `ws://127.0.0.1:${serverB.address().port}/ws`;
+        });
+
+        afterEach(async () => {
+            // Close all active clients
+            for (const client of phase2Clients) {
+                try { client.terminate(); } catch {}
+            }
+            phase2Clients.clear();
+
+            // Close Redis connections
+            if (pubA) { try { await pubA.quit(); } catch {} }
+            if (subA) { try { await subA.quit(); } catch {} }
+            if (pubB) { try { await pubB.quit(); } catch {} }
+            if (subB) { try { await subB.quit(); } catch {} }
+
+            // Close HTTP servers
+            await new Promise((resolve) => serverA.close(resolve));
+            await new Promise((resolve) => serverB.close(resolve));
+
+            // Close embedded Redis server
+            if (redisServer) {
+                await redisServer.close();
+            }
+        });
+
+        it('Phase 2 Correctness 1: client on Instance A receives commentary published on Instance B via Redis pub/sub', async () => {
+            const clientA = await connectWs(wsUrlA);
+            const welcome = await awaitMessage(clientA, 'welcome');
+            expect(welcome.type).toBe('welcome');
+
+            // Subscribe clientA to match 100 on Instance A
+            clientA.send(JSON.stringify({ type: 'subscribe', matchId: 100 }));
+            await awaitMessage(clientA, 'subscribed');
+            await awaitMessage(clientA, 'reaction_snapshot');
+
+            // Instance B broadcasts commentary for match 100
+            handlesB.broadcastCommentary(100, { text: 'Cross-instance bicycle kick goal from Server B!' });
+
+            // Client on Instance A receives commentary delivered across Redis
+            const msg = await awaitMessage(clientA, 'commentary');
+            expect(msg.type).toBe('commentary');
+            expect(msg.data.text).toBe('Cross-instance bicycle kick goal from Server B!');
+            expect(typeof msg.serverTimestamp).toBe('number');
+        });
+
+        it('Phase 2 Correctness 2: no duplicate deliveries when match has subscribers across multiple instances', async () => {
+            const clientA1 = await connectWs(wsUrlA);
+            const clientA2 = await connectWs(wsUrlA);
+            const clientB1 = await connectWs(wsUrlB);
+
+            for (const c of [clientA1, clientA2, clientB1]) {
+                await awaitMessage(c, 'welcome');
+                c.send(JSON.stringify({ type: 'subscribe', matchId: 200 }));
+                await awaitMessage(c, 'subscribed');
+                await awaitMessage(c, 'reaction_snapshot');
+            }
+
+            // Publish 1 commentary event from Instance A
+            handlesA.broadcastCommentary(200, { text: 'Header on target!' });
+
+            const msgA1 = await awaitMessage(clientA1, 'commentary');
+            const msgA2 = await awaitMessage(clientA2, 'commentary');
+            const msgB1 = await awaitMessage(clientB1, 'commentary');
+
+            expect(msgA1.data.text).toBe('Header on target!');
+            expect(msgA2.data.text).toBe('Header on target!');
+            expect(msgB1.data.text).toBe('Header on target!');
+
+            // Wait 150ms and assert no duplicate messages arrive in queues
+            await new Promise((r) => setTimeout(r, 150));
+            const commentaryQueueA1 = clientA1._messageQueue.filter((m) => m.type === 'commentary');
+            const commentaryQueueA2 = clientA2._messageQueue.filter((m) => m.type === 'commentary');
+            const commentaryQueueB1 = clientB1._messageQueue.filter((m) => m.type === 'commentary');
+
+            expect(commentaryQueueA1.length).toBe(0);
+            expect(commentaryQueueA2.length).toBe(0);
+            expect(commentaryQueueB1.length).toBe(0);
+        });
+
+        it('Phase 2 Correctness 3: concurrent emoji reactions from different instances update Redis atomically and remain consistent', async () => {
+            const clientA = await connectWs(wsUrlA);
+            const clientB = await connectWs(wsUrlB);
+
+            await awaitMessage(clientA, 'welcome');
+            await awaitMessage(clientB, 'welcome');
+
+            clientA.send(JSON.stringify({ type: 'subscribe', matchId: 300 }));
+            await awaitMessage(clientA, 'subscribed');
+            await awaitMessage(clientA, 'reaction_snapshot');
+
+            clientB.send(JSON.stringify({ type: 'subscribe', matchId: 300 }));
+            await awaitMessage(clientB, 'subscribed');
+            await awaitMessage(clientB, 'reaction_snapshot');
+
+            // Send 5 reactions from clientA and 5 from clientB concurrently
+            const reactionsA = Array.from({ length: 5 }, () =>
+                clientA.send(JSON.stringify({ type: 'reaction', matchId: 300, emoji: '🔥' }))
+            );
+            const reactionsB = Array.from({ length: 5 }, () =>
+                clientB.send(JSON.stringify({ type: 'reaction', matchId: 300, emoji: '🔥' }))
+            );
+
+            // Wait until Redis stores 10 '🔥' reactions
+            let finalCount = 0;
+            for (let i = 0; i < 30; i++) {
+                const raw = await pubA.hgetall('sportz:match:300:reactions');
+                finalCount = parseInt(raw?.['🔥'] || '0', 10);
+                if (finalCount === 10) break;
+                await new Promise((r) => setTimeout(r, 50));
+            }
+
+            expect(finalCount).toBe(10);
+
+            // A new client connecting to Instance B receives the exact snapshot of 10
+            const clientB2 = await connectWs(wsUrlB);
+            await awaitMessage(clientB2, 'welcome');
+            clientB2.send(JSON.stringify({ type: 'subscribe', matchId: 300 }));
+            await awaitMessage(clientB2, 'subscribed');
+            const snapshot = await awaitMessage(clientB2, 'reaction_snapshot');
+
+            expect(snapshot.counts['🔥']).toBe(10);
+        });
+
+        it('Phase 2 Correctness 4: global broadcast (score update and match creation) reaches all instances without duplicates and syncs knownMatchIds', async () => {
+            const clientA = await connectWs(wsUrlA);
+            const clientB = await connectWs(wsUrlB);
+
+            await awaitMessage(clientA, 'welcome');
+            await awaitMessage(clientB, 'welcome');
+
+            // 1. Score update broadcast from Instance A reaches Client B on Instance B
+            handlesA.broadcastScoreUpdate(400, { home: 3, away: 1 });
+
+            const scoreMsgA = await awaitMessage(clientA, 'score_update');
+            const scoreMsgB = await awaitMessage(clientB, 'score_update');
+
+            expect(scoreMsgA.data.home).toBe(3);
+            expect(scoreMsgB.data.home).toBe(3);
+
+            // 2. Match creation on Instance A reaches Client B and updates Instance B's knownMatchIdsSet
+            handlesA.broadcastMatchCreated({ id: 888, title: 'Finals Derby' });
+
+            const matchMsgA = await awaitMessage(clientA, 'match_created');
+            const matchMsgB = await awaitMessage(clientB, 'match_created');
+
+            expect(matchMsgA.data.id).toBe(888);
+            expect(matchMsgB.data.id).toBe(888);
+
+            // Client on Instance B can now subscribe to match 888 successfully
+            clientB.send(JSON.stringify({ type: 'subscribe', matchId: 888 }));
+            const subConfirm = await awaitMessage(clientB, 'subscribed');
+            expect(subConfirm.matchId).toBe(888);
         });
     });
 });

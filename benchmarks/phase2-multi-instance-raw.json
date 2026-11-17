@@ -1,0 +1,1753 @@
+{
+  "timestamp": "2026-11-17T16:56:54.084Z",
+  "mode": "tiers",
+  "platform": {
+    "nodeVersion": "v24.15.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "concurrencyTiers": [
+    {
+      "concurrency": 100,
+      "repeatCount": 3,
+      "runs": [
+        {
+          "concurrency": 100,
+          "rooms": 5,
+          "connected": 100,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 2675,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 500,
+          "actualDeliveries": 500,
+          "ontimeDeliveries": 500,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 2,
+            "p95": 3,
+            "p99": 3,
+            "max": 4,
+            "avg": 1.69
+          },
+          "loadGenCpuPercent": 2.3,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 4.3,
+              "rssMb": 412.9,
+              "heapUsedMb": 57.3,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 3.8,
+                  "dbQueriesFired": 0,
+                  "lastQueryDurationMs": 0,
+                  "rssMb": 206.22,
+                  "heapUsedMb": 29.3,
+                  "heapTotalMb": 157.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0.5,
+                  "dbQueriesFired": 0,
+                  "lastQueryDurationMs": 0,
+                  "rssMb": 206.63,
+                  "heapUsedMb": 28.01,
+                  "heapTotalMb": 156.93
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 9.3,
+              "rssMb": 188,
+              "heapUsedMb": 58.1,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 4.4,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 93.22,
+                  "heapUsedMb": 29.17,
+                  "heapTotalMb": 30.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 4.9,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 94.74,
+                  "heapUsedMb": 28.94,
+                  "heapTotalMb": 30.68
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 3.2,
+              "rssMb": 190.7,
+              "heapUsedMb": 58.6,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 2,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 94.78,
+                  "heapUsedMb": 29.43,
+                  "heapTotalMb": 31.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 1.2,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 95.91,
+                  "heapUsedMb": 29.14,
+                  "heapTotalMb": 31.93
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 100,
+          "rooms": 5,
+          "connected": 100,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 148,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 500,
+          "actualDeliveries": 500,
+          "ontimeDeliveries": 500,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 2,
+            "p95": 3,
+            "p99": 4,
+            "max": 4,
+            "avg": 1.71
+          },
+          "loadGenCpuPercent": 0.9,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 190.9,
+              "heapUsedMb": 58.7,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 94.88,
+                  "heapUsedMb": 29.5,
+                  "heapTotalMb": 31.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 96,
+                  "heapUsedMb": 29.19,
+                  "heapTotalMb": 31.93
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 4.4,
+              "rssMb": 190.1,
+              "heapUsedMb": 59,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 2.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 94.63,
+                  "heapUsedMb": 29.71,
+                  "heapTotalMb": 31.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 2.1,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 95.43,
+                  "heapUsedMb": 29.32,
+                  "heapTotalMb": 31.43
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 1.6,
+              "rssMb": 190.7,
+              "heapUsedMb": 59.4,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 94.71,
+                  "heapUsedMb": 29.86,
+                  "heapTotalMb": 31.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 95.95,
+                  "heapUsedMb": 29.55,
+                  "heapTotalMb": 31.43
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 100,
+          "rooms": 5,
+          "connected": 100,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 256,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 500,
+          "actualDeliveries": 500,
+          "ontimeDeliveries": 500,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 1,
+            "p50": 3,
+            "p95": 8,
+            "p99": 12,
+            "max": 12,
+            "avg": 3.17
+          },
+          "loadGenCpuPercent": 1.4,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 190.7,
+              "heapUsedMb": 59.6,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 94.72,
+                  "heapUsedMb": 29.94,
+                  "heapTotalMb": 31.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 95.95,
+                  "heapUsedMb": 29.62,
+                  "heapTotalMb": 31.43
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 4,
+              "rssMb": 150.1,
+              "heapUsedMb": 61.7,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 2,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 95.98,
+                  "heapUsedMb": 30.17,
+                  "heapTotalMb": 32.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 2,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 54.1,
+                  "heapUsedMb": 31.51,
+                  "heapTotalMb": 34.68
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 3.5,
+              "rssMb": 151.6,
+              "heapUsedMb": 60.5,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 1.6,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 96.39,
+                  "heapUsedMb": 30.45,
+                  "heapTotalMb": 32.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 1.9,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 55.24,
+                  "heapUsedMb": 30,
+                  "heapTotalMb": 32.93
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "summary": {
+        "p50": {
+          "mean": 2.3,
+          "min": 2,
+          "max": 3
+        },
+        "p95": {
+          "mean": 4.7,
+          "min": 3,
+          "max": 8
+        },
+        "p99": {
+          "mean": 6.3,
+          "min": 3,
+          "max": 12
+        },
+        "lateRatePercent": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "undeliveredRatePercent": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    },
+    {
+      "concurrency": 500,
+      "repeatCount": 3,
+      "runs": [
+        {
+          "concurrency": 500,
+          "rooms": 5,
+          "connected": 500,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 949,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 2500,
+          "actualDeliveries": 2500,
+          "ontimeDeliveries": 2500,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 3,
+            "p95": 7,
+            "p99": 8,
+            "max": 8,
+            "avg": 3.47
+          },
+          "loadGenCpuPercent": 2.3,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 151.6,
+              "heapUsedMb": 60.6,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 96.39,
+                  "heapUsedMb": 30.5,
+                  "heapTotalMb": 32.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 55.25,
+                  "heapUsedMb": 30.07,
+                  "heapTotalMb": 32.93
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 15.4,
+              "rssMb": 121.1,
+              "heapUsedMb": 63.8,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 8.6,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 62.84,
+                  "heapUsedMb": 32.18,
+                  "heapTotalMb": 34.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 6.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 58.25,
+                  "heapUsedMb": 31.63,
+                  "heapTotalMb": 34.43
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 9.2,
+              "rssMb": 106.7,
+              "heapUsedMb": 63.9,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 3.4,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 48.24,
+                  "heapUsedMb": 32.22,
+                  "heapTotalMb": 35.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 5.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 58.46,
+                  "heapUsedMb": 31.66,
+                  "heapTotalMb": 34.43
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 500,
+          "rooms": 5,
+          "connected": 500,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 1191,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 2500,
+          "actualDeliveries": 2500,
+          "ontimeDeliveries": 2500,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 5,
+            "p95": 15,
+            "p99": 27,
+            "max": 28,
+            "avg": 5.84
+          },
+          "loadGenCpuPercent": 4.4,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 106.7,
+              "heapUsedMb": 64,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 48.24,
+                  "heapUsedMb": 32.27,
+                  "heapTotalMb": 35.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 58.46,
+                  "heapUsedMb": 31.72,
+                  "heapTotalMb": 34.43
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 16.4,
+              "rssMb": 112.3,
+              "heapUsedMb": 67.5,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 8.1,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 51.19,
+                  "heapUsedMb": 33.86,
+                  "heapTotalMb": 35.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 8.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 61.08,
+                  "heapUsedMb": 33.66,
+                  "heapTotalMb": 36.43
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 10,
+              "rssMb": 112.8,
+              "heapUsedMb": 67.2,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 5.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 51.46,
+                  "heapUsedMb": 33.67,
+                  "heapTotalMb": 36.68
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 4.2,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 61.35,
+                  "heapUsedMb": 33.49,
+                  "heapTotalMb": 36.43
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 500,
+          "rooms": 5,
+          "connected": 500,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 1120,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 2500,
+          "actualDeliveries": 2400,
+          "ontimeDeliveries": 2400,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 100,
+          "undeliveredRatePercent": 4,
+          "latencyMs": {
+            "min": 0,
+            "p50": 2,
+            "p95": 4,
+            "p99": 5,
+            "max": 6,
+            "avg": 2.12
+          },
+          "loadGenCpuPercent": 2.6,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 112.8,
+              "heapUsedMb": 67.3,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 51.46,
+                  "heapUsedMb": 33.72,
+                  "heapTotalMb": 36.68
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 61.35,
+                  "heapUsedMb": 33.54,
+                  "heapTotalMb": 36.43
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 11.3,
+              "rssMb": 119.6,
+              "heapUsedMb": 70.5,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 5.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 55.1,
+                  "heapUsedMb": 35.48,
+                  "heapTotalMb": 36.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 6,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 64.54,
+                  "heapUsedMb": 35.07,
+                  "heapTotalMb": 36.93
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 6.5,
+              "rssMb": 106.8,
+              "heapUsedMb": 71.1,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 2.7,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 54.5,
+                  "heapUsedMb": 35.78,
+                  "heapTotalMb": 37.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 3.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 52.29,
+                  "heapUsedMb": 35.35,
+                  "heapTotalMb": 37.93
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "summary": {
+        "p50": {
+          "mean": 3.3,
+          "min": 2,
+          "max": 5
+        },
+        "p95": {
+          "mean": 8.7,
+          "min": 4,
+          "max": 15
+        },
+        "p99": {
+          "mean": 13.3,
+          "min": 5,
+          "max": 27
+        },
+        "lateRatePercent": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "undeliveredRatePercent": {
+          "mean": 1.3,
+          "min": 0,
+          "max": 4
+        }
+      }
+    },
+    {
+      "concurrency": 1000,
+      "repeatCount": 3,
+      "runs": [
+        {
+          "concurrency": 1000,
+          "rooms": 5,
+          "connected": 1000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 2212,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 5000,
+          "actualDeliveries": 5000,
+          "ontimeDeliveries": 5000,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 8,
+            "p95": 67,
+            "p99": 75,
+            "max": 77,
+            "avg": 13.85
+          },
+          "loadGenCpuPercent": 3.8,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 106.8,
+              "heapUsedMb": 71.2,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 54.5,
+                  "heapUsedMb": 35.83,
+                  "heapTotalMb": 37.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 52.29,
+                  "heapUsedMb": 35.4,
+                  "heapTotalMb": 37.93
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 22.8,
+              "rssMb": 135,
+              "heapUsedMb": 62.8,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 10,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 67.66,
+                  "heapUsedMb": 31.81,
+                  "heapTotalMb": 37.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 12.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 67.31,
+                  "heapUsedMb": 31.03,
+                  "heapTotalMb": 38.18
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 15.5,
+              "rssMb": 133.1,
+              "heapUsedMb": 64.8,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 7.6,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 66.89,
+                  "heapUsedMb": 32.88,
+                  "heapTotalMb": 40.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 7.9,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 66.23,
+                  "heapUsedMb": 31.87,
+                  "heapTotalMb": 38.18
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 1000,
+          "rooms": 5,
+          "connected": 1000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 1880,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 5000,
+          "actualDeliveries": 5000,
+          "ontimeDeliveries": 5000,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 3,
+            "p95": 7,
+            "p99": 9,
+            "max": 10,
+            "avg": 3.54
+          },
+          "loadGenCpuPercent": 5.2,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 320,
+              "rssMb": 133.2,
+              "heapUsedMb": 64.9,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 66.89,
+                  "heapUsedMb": 32.94,
+                  "heapTotalMb": 40.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 320,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 66.26,
+                  "heapUsedMb": 31.92,
+                  "heapTotalMb": 38.18
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 22.2,
+              "rssMb": 136.9,
+              "heapUsedMb": 69.6,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 9.2,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 68.73,
+                  "heapUsedMb": 34.83,
+                  "heapTotalMb": 40.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 13,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 68.21,
+                  "heapUsedMb": 34.8,
+                  "heapTotalMb": 40.18
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 7.2,
+              "rssMb": 134.8,
+              "heapUsedMb": 69.7,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 4.2,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 67.71,
+                  "heapUsedMb": 34.84,
+                  "heapTotalMb": 40.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 67.14,
+                  "heapUsedMb": 34.83,
+                  "heapTotalMb": 40.18
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 1000,
+          "rooms": 5,
+          "connected": 1000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 1519,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 5000,
+          "actualDeliveries": 5000,
+          "ontimeDeliveries": 5000,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 8,
+            "p95": 23,
+            "p99": 35,
+            "max": 37,
+            "avg": 9.55
+          },
+          "loadGenCpuPercent": 4.1,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 134.9,
+              "heapUsedMb": 69.8,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 67.72,
+                  "heapUsedMb": 34.9,
+                  "heapTotalMb": 40.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 67.15,
+                  "heapUsedMb": 34.9,
+                  "heapTotalMb": 40.18
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 20,
+              "rssMb": 133.7,
+              "heapUsedMb": 66.2,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 10.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 69.16,
+                  "heapUsedMb": 33.33,
+                  "heapTotalMb": 45.68
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 9.7,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 64.53,
+                  "heapUsedMb": 32.86,
+                  "heapTotalMb": 45.43
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 15.5,
+              "rssMb": 133.6,
+              "heapUsedMb": 64.2,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 8.1,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 69.4,
+                  "heapUsedMb": 32.31,
+                  "heapTotalMb": 41.68
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 7.4,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 64.19,
+                  "heapUsedMb": 31.89,
+                  "heapTotalMb": 41.43
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "summary": {
+        "p50": {
+          "mean": 6.3,
+          "min": 3,
+          "max": 8
+        },
+        "p95": {
+          "mean": 32.3,
+          "min": 7,
+          "max": 67
+        },
+        "p99": {
+          "mean": 39.7,
+          "min": 9,
+          "max": 75
+        },
+        "lateRatePercent": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        },
+        "undeliveredRatePercent": {
+          "mean": 0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    },
+    {
+      "concurrency": 2000,
+      "repeatCount": 3,
+      "runs": [
+        {
+          "concurrency": 2000,
+          "rooms": 5,
+          "connected": 2000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 4909,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 10000,
+          "actualDeliveries": 10000,
+          "ontimeDeliveries": 10000,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 12,
+            "p95": 21,
+            "p99": 36,
+            "max": 39,
+            "avg": 11.85
+          },
+          "loadGenCpuPercent": 8.3,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 214.3,
+              "rssMb": 133.6,
+              "heapUsedMb": 64.3,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 69.4,
+                  "heapUsedMb": 32.36,
+                  "heapTotalMb": 41.68
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 214.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 64.19,
+                  "heapUsedMb": 31.94,
+                  "heapTotalMb": 41.43
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 33.9,
+              "rssMb": 143.6,
+              "heapUsedMb": 67.5,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 17.4,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 74.26,
+                  "heapUsedMb": 33.85,
+                  "heapTotalMb": 53.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 16.5,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 69.3,
+                  "heapUsedMb": 33.64,
+                  "heapTotalMb": 53.18
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 36,
+              "rssMb": 150.7,
+              "heapUsedMb": 64.8,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 18,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 77.16,
+                  "heapUsedMb": 32.52,
+                  "heapTotalMb": 53.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 18,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 73.58,
+                  "heapUsedMb": 32.24,
+                  "heapTotalMb": 53.43
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 2000,
+          "rooms": 5,
+          "connected": 2000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 7139,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 10000,
+          "actualDeliveries": 9945,
+          "ontimeDeliveries": 9520,
+          "lateDeliveries": 425,
+          "lateRatePercent": 4.25,
+          "undeliveredDeliveries": 55,
+          "undeliveredRatePercent": 0.55,
+          "latencyMs": {
+            "min": 0,
+            "p50": 35,
+            "p95": 134,
+            "p99": 181,
+            "max": 285,
+            "avg": 46.45
+          },
+          "loadGenCpuPercent": 8.8,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 150.7,
+              "heapUsedMb": 64.9,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 77.16,
+                  "heapUsedMb": 32.57,
+                  "heapTotalMb": 53.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 73.58,
+                  "heapUsedMb": 32.29,
+                  "heapTotalMb": 53.43
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 31.8,
+              "rssMb": 168,
+              "heapUsedMb": 62.9,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 16.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 86.11,
+                  "heapUsedMb": 31.52,
+                  "heapTotalMb": 70.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 15.5,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 81.86,
+                  "heapUsedMb": 31.35,
+                  "heapTotalMb": 70.43
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 30.7,
+              "rssMb": 175.5,
+              "heapUsedMb": 85.3,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 13.4,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 89.61,
+                  "heapUsedMb": 42.72,
+                  "heapTotalMb": 70.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 17.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 85.89,
+                  "heapUsedMb": 42.54,
+                  "heapTotalMb": 70.43
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 2000,
+          "rooms": 5,
+          "connected": 2000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 7171,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 10000,
+          "actualDeliveries": 9770,
+          "ontimeDeliveries": 9540,
+          "lateDeliveries": 230,
+          "lateRatePercent": 2.3,
+          "undeliveredDeliveries": 230,
+          "undeliveredRatePercent": 2.3,
+          "latencyMs": {
+            "min": 0,
+            "p50": 12,
+            "p95": 110,
+            "p99": 158,
+            "max": 246,
+            "avg": 21.62
+          },
+          "loadGenCpuPercent": 13,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 61.5,
+              "rssMb": 175.6,
+              "heapUsedMb": 85.4,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 89.69,
+                  "heapUsedMb": 42.77,
+                  "heapTotalMb": 70.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 61.5,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 85.89,
+                  "heapUsedMb": 42.59,
+                  "heapTotalMb": 70.43
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 29.7,
+              "rssMb": 179.9,
+              "heapUsedMb": 82.1,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 15.1,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 91.46,
+                  "heapUsedMb": 41.19,
+                  "heapTotalMb": 70.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 14.6,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 88.42,
+                  "heapUsedMb": 40.93,
+                  "heapTotalMb": 70.43
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 25.1,
+              "rssMb": 180.6,
+              "heapUsedMb": 81.7,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 13.1,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 92.24,
+                  "heapUsedMb": 40.97,
+                  "heapTotalMb": 71.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 12,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 88.32,
+                  "heapUsedMb": 40.72,
+                  "heapTotalMb": 71.68
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "summary": {
+        "p50": {
+          "mean": 19.7,
+          "min": 12,
+          "max": 35
+        },
+        "p95": {
+          "mean": 88.3,
+          "min": 21,
+          "max": 134
+        },
+        "p99": {
+          "mean": 125,
+          "min": 36,
+          "max": 181
+        },
+        "lateRatePercent": {
+          "mean": 2.2,
+          "min": 0,
+          "max": 4.25
+        },
+        "undeliveredRatePercent": {
+          "mean": 0.9,
+          "min": 0,
+          "max": 2.3
+        }
+      }
+    },
+    {
+      "concurrency": 5000,
+      "repeatCount": 3,
+      "runs": [
+        {
+          "concurrency": 5000,
+          "rooms": 5,
+          "connected": 5000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 15703,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 25000,
+          "actualDeliveries": 23689,
+          "ontimeDeliveries": 22503,
+          "lateDeliveries": 1186,
+          "lateRatePercent": 4.74,
+          "undeliveredDeliveries": 1311,
+          "undeliveredRatePercent": 5.24,
+          "latencyMs": {
+            "min": 0,
+            "p50": 56,
+            "p95": 151,
+            "p99": 193,
+            "max": 208,
+            "avg": 63.75
+          },
+          "loadGenCpuPercent": 21.2,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 200,
+              "rssMb": 180.6,
+              "heapUsedMb": 81.8,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 92.24,
+                  "heapUsedMb": 41.02,
+                  "heapTotalMb": 71.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 200,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 88.32,
+                  "heapUsedMb": 40.78,
+                  "heapTotalMb": 71.68
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 42.5,
+              "rssMb": 245.5,
+              "heapUsedMb": 85.6,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 20.4,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 122.84,
+                  "heapUsedMb": 42.92,
+                  "heapTotalMb": 106.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 22.1,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 122.65,
+                  "heapUsedMb": 42.7,
+                  "heapTotalMb": 106.18
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 52.9,
+              "rssMb": 243,
+              "heapUsedMb": 94.6,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 23.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 121.73,
+                  "heapUsedMb": 47.41,
+                  "heapTotalMb": 106.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 29.1,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 121.26,
+                  "heapUsedMb": 47.16,
+                  "heapTotalMb": 106.18
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 5000,
+          "rooms": 5,
+          "connected": 5000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 13405,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 25000,
+          "actualDeliveries": 25000,
+          "ontimeDeliveries": 24340,
+          "lateDeliveries": 660,
+          "lateRatePercent": 2.64,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 33,
+            "p95": 116,
+            "p99": 168,
+            "max": 180,
+            "avg": 41.6
+          },
+          "loadGenCpuPercent": 18.8,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 243.1,
+              "heapUsedMb": 94.7,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 121.8,
+                  "heapUsedMb": 47.47,
+                  "heapTotalMb": 106.43
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 121.26,
+                  "heapUsedMb": 47.21,
+                  "heapTotalMb": 106.18
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 44.1,
+              "rssMb": 250,
+              "heapUsedMb": 158,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 22.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 125.21,
+                  "heapUsedMb": 79.19,
+                  "heapTotalMb": 177.18
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 21.8,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 124.77,
+                  "heapUsedMb": 78.84,
+                  "heapTotalMb": 176.93
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 68.3,
+              "rssMb": 289.3,
+              "heapUsedMb": 122.8,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 37,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 144.53,
+                  "heapUsedMb": 61.58,
+                  "heapTotalMb": 179.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 31.3,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 144.8,
+                  "heapUsedMb": 61.26,
+                  "heapTotalMb": 179.68
+                }
+              ]
+            }
+          }
+        },
+        {
+          "concurrency": 5000,
+          "rooms": 5,
+          "connected": 5000,
+          "connectionErrors": 0,
+          "errorDetails": {},
+          "connectDurationMs": 11370,
+          "broadcastRounds": 5,
+          "expectedDeliveries": 25000,
+          "actualDeliveries": 25000,
+          "ontimeDeliveries": 25000,
+          "lateDeliveries": 0,
+          "lateRatePercent": 0,
+          "undeliveredDeliveries": 0,
+          "undeliveredRatePercent": 0,
+          "latencyMs": {
+            "min": 0,
+            "p50": 20,
+            "p95": 53,
+            "p99": 99,
+            "max": 128,
+            "avg": 23.41
+          },
+          "loadGenCpuPercent": 16.2,
+          "serverStats": {
+            "initial": {
+              "instances": 2,
+              "cpuPercent": 0,
+              "rssMb": 289.4,
+              "heapUsedMb": 122.9,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 144.56,
+                  "heapUsedMb": 61.63,
+                  "heapTotalMb": 179.93
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 0,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 144.84,
+                  "heapUsedMb": 61.31,
+                  "heapTotalMb": 179.68
+                }
+              ]
+            },
+            "peak": {
+              "instances": 2,
+              "cpuPercent": 47.2,
+              "rssMb": 308.7,
+              "heapUsedMb": 139,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 23.6,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 150.8,
+                  "heapUsedMb": 69.64,
+                  "heapTotalMb": 189.68
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 23.6,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 157.86,
+                  "heapUsedMb": 69.39,
+                  "heapTotalMb": 189.43
+                }
+              ]
+            },
+            "afterGc": {
+              "instances": 2,
+              "cpuPercent": 61.6,
+              "rssMb": 307.2,
+              "heapUsedMb": 193.8,
+              "details": [
+                {
+                  "api": "http://127.0.0.1:8000",
+                  "cpuPercent": 28.7,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2521,
+                  "rssMb": 151.02,
+                  "heapUsedMb": 97.04,
+                  "heapTotalMb": 189.68
+                },
+                {
+                  "api": "http://127.0.0.1:8001",
+                  "cpuPercent": 32.9,
+                  "dbQueriesFired": 5,
+                  "lastQueryDurationMs": 2515,
+                  "rssMb": 156.15,
+                  "heapUsedMb": 96.8,
+                  "heapTotalMb": 189.43
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "summary": {
+        "p50": {
+          "mean": 36.3,
+          "min": 20,
+          "max": 56
+        },
+        "p95": {
+          "mean": 106.7,
+          "min": 53,
+          "max": 151
+        },
+        "p99": {
+          "mean": 153.3,
+          "min": 99,
+          "max": 193
+        },
+        "lateRatePercent": {
+          "mean": 2.5,
+          "min": 0,
+          "max": 4.74
+        },
+        "undeliveredRatePercent": {
+          "mean": 1.7,
+          "min": 0,
+          "max": 5.24
+        }
+      }
+    }
+  ],
+  "globalBroadcast": null,
+  "coldStartBurst": null
+}

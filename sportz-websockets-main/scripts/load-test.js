@@ -16,13 +16,26 @@ function getArg(flag, defaultValue) {
     return defaultValue;
 }
 
-const TARGET_WS = getArg('--target', process.env.TARGET_WS || 'ws://127.0.0.1:8000/ws');
-const TARGET_API = getArg('--api', process.env.TARGET_API || 'http://127.0.0.1:8000');
-const TIERS_ARG = getArg('--tiers', '100,500,1000,2000,5000,10000');
+const TARGETS_ARG = getArg('--targets', '');
+const TARGET_WS_LIST = TARGETS_ARG
+    ? TARGETS_ARG.split(',').map(s => s.trim()).filter(Boolean)
+    : [getArg('--target', process.env.TARGET_WS || 'ws://127.0.0.1:8000/ws')];
+
+const APIS_ARG = getArg('--apis', '');
+const TARGET_API_LIST = APIS_ARG
+    ? APIS_ARG.split(',').map(s => s.trim()).filter(Boolean)
+    : [getArg('--api', process.env.TARGET_API || 'http://127.0.0.1:8000')];
+
+const TARGET_WS = TARGET_WS_LIST[0];
+const TARGET_API = TARGET_API_LIST[0];
+
+const TIERS_ARG = getArg('--tiers', '100,500,1000,2000,5000');
 const CONCURRENCY_TIERS = TIERS_ARG.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0);
 const BROADCAST_ROUNDS = Number(getArg('--rounds', '10'));
+const REPEAT_COUNT = Number(getArg('--repeat', '1'));
+const COOLDOWN_SEC = Number(getArg('--cooldown', '10'));
 const MODE = getArg('--mode', 'all'); // 'all', 'tiers', 'global', 'coldstart'
-const OUTPUT_FILE = getArg('--output', path.resolve(__dirname, '../../benchmarks/baseline-raw.json'));
+const OUTPUT_FILE = getArg('--output', path.resolve(__dirname, '../../benchmarks/phase2-raw.json'));
 
 function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,22 +80,41 @@ function calculatePercentiles(latencies) {
 }
 
 async function fetchServerStats(forceGc = false) {
-    try {
-        const url = forceGc ? `${TARGET_API}/health?gc=1` : `${TARGET_API}/health`;
-        const res = await fetch(url);
-        if (res.ok) {
-            const data = await res.json();
-            return {
-                cpuPercent: data.cpuPercent ?? 0,
-                dbQueriesFired: data.dbQueriesFired ?? 0,
-                lastQueryDurationMs: data.lastQueryDurationMs ?? 0,
-                ...(data.memory || {})
-            };
+    const allStats = [];
+    for (const api of TARGET_API_LIST) {
+        try {
+            const url = forceGc ? `${api}/health?gc=1` : `${api}/health`;
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                allStats.push({
+                    api,
+                    cpuPercent: data.cpuPercent ?? 0,
+                    dbQueriesFired: data.dbQueriesFired ?? 0,
+                    lastQueryDurationMs: data.lastQueryDurationMs ?? 0,
+                    ...(data.memory || {})
+                });
+            }
+        } catch {
+            // server might be busy or unreachable
         }
-    } catch {
-        // server might be busy or unreachable
     }
-    return null;
+
+    if (allStats.length === 0) return null;
+    if (allStats.length === 1) return allStats[0];
+
+    // Aggregate stats across instances
+    const totalCpu = Number(allStats.reduce((sum, s) => sum + (s.cpuPercent || 0), 0).toFixed(1));
+    const totalRss = Number(allStats.reduce((sum, s) => sum + (s.rssMb || 0), 0).toFixed(1));
+    const totalHeap = Number(allStats.reduce((sum, s) => sum + (s.heapUsedMb || 0), 0).toFixed(1));
+
+    return {
+        instances: allStats.length,
+        cpuPercent: totalCpu,
+        rssMb: totalRss,
+        heapUsedMb: totalHeap,
+        details: allStats
+    };
 }
 
 async function resetServerDbQueries() {
@@ -238,7 +270,8 @@ async function runTier(targetConcurrency, matchIds) {
     console.log(`Initial Server Memory (post-GC): RSS=${initialStats?.rssMb ?? 'N/A'} MB, HeapUsed=${initialStats?.heapUsedMb ?? 'N/A'} MB`);
 
     const clients = [];
-    const roomsCount = matchIds.length;
+    const roomsCount = Math.min(matchIds.length, 5);
+    const activeMatchIds = matchIds.slice(0, roomsCount);
     let connectionErrors = 0;
     const errorDetails = new Map();
 
@@ -250,10 +283,11 @@ async function runTier(targetConcurrency, matchIds) {
         const batch = [];
         const limit = Math.min(i + BATCH_SIZE, targetConcurrency);
         for (let j = i; j < limit; j++) {
-            const matchId = matchIds[j % roomsCount];
+            const matchId = activeMatchIds[j % roomsCount];
             const client = new LoadClient(j, matchId);
             clients.push(client);
-            batch.push(client.connect(TARGET_WS, true));
+            const targetWs = TARGET_WS_LIST[j % TARGET_WS_LIST.length];
+            batch.push(client.connect(targetWs, true));
         }
         const results = await Promise.all(batch);
         for (let idx = 0; idx < results.length; idx++) {
@@ -290,22 +324,25 @@ async function runTier(targetConcurrency, matchIds) {
         };
     }
 
-    await delay(1000);
+    await delay(500);
 
     // Fan-out latency benchmark
     console.log(`Publishing ${BROADCAST_ROUNDS} broadcast events per room across ${roomsCount} rooms...`);
     const allLatencies = [];
     let expectedDeliveries = 0;
     let actualDeliveries = 0;
+    let ontimeDeliveries = 0;
+    let lateDeliveries = 0;
+    let undeliveredDeliveries = 0;
 
     const roomSubscribers = new Map();
-    for (const matchId of matchIds) {
+    for (const matchId of activeMatchIds) {
         roomSubscribers.set(matchId, clients.filter(c => c.connected && c.subscribed && c.matchId === matchId));
     }
 
     getLoadGenCpu();
     for (let round = 1; round <= BROADCAST_ROUNDS; round++) {
-        for (const matchId of matchIds) {
+        for (const matchId of activeMatchIds) {
             const subs = roomSubscribers.get(matchId) || [];
             if (subs.length === 0) continue;
 
@@ -317,22 +354,37 @@ async function runTier(targetConcurrency, matchIds) {
 
             publisher.sendReaction('🔥');
 
+            // Wait 150ms for on-time window
             await delay(150);
+            // Wait additional 50ms buffer to collect late deliveries (>150ms)
+            await delay(50);
 
-            let roundReceived = 0;
+            let roundOntime = 0;
+            let roundLate = 0;
+            let roundUndelivered = 0;
+
             for (const c of subs) {
                 if (c.receivedMessages.length > 0) {
-                    roundReceived++;
                     for (const m of c.receivedMessages) {
                         if (m.latency >= 0) {
                             allLatencies.push(m.latency);
+                            if (m.latency <= 150) {
+                                roundOntime++;
+                            } else {
+                                roundLate++;
+                            }
                         }
                     }
+                } else {
+                    roundUndelivered++;
                 }
             }
 
             expectedDeliveries += subs.length;
-            actualDeliveries += roundReceived;
+            actualDeliveries += (roundOntime + roundLate);
+            ontimeDeliveries += roundOntime;
+            lateDeliveries += roundLate;
+            undeliveredDeliveries += roundUndelivered;
         }
     }
 
@@ -341,17 +393,18 @@ async function runTier(targetConcurrency, matchIds) {
     console.log(`Peak Server CPU: ${midStats?.cpuPercent ?? 'N/A'}% | Load-Gen CPU: ${loadGenCpu}%`);
     console.log(`Peak Server Memory: RSS=${midStats?.rssMb ?? 'N/A'} MB, HeapUsed=${midStats?.heapUsedMb ?? 'N/A'} MB`);
 
-    const messagesLost = Math.max(0, expectedDeliveries - actualDeliveries);
-    const lossRate = expectedDeliveries > 0 ? Number(((messagesLost / expectedDeliveries) * 100).toFixed(2)) : 0;
+    const lateRate = expectedDeliveries > 0 ? Number(((lateDeliveries / expectedDeliveries) * 100).toFixed(2)) : 0;
+    const undeliveredRate = expectedDeliveries > 0 ? Number(((undeliveredDeliveries / expectedDeliveries) * 100).toFixed(2)) : 0;
     const latencyMetrics = calculatePercentiles(allLatencies);
 
     console.log(`--- Results (N=${targetConcurrency}) ---`);
-    console.log(`Deliveries: ${actualDeliveries}/${expectedDeliveries} (Lost: ${messagesLost}, Loss Rate: ${lossRate}%)`);
+    console.log(`Deliveries: ${actualDeliveries}/${expectedDeliveries} (Ontime: ${ontimeDeliveries}, Late >150ms: ${lateDeliveries} [${lateRate}%], Undelivered: ${undeliveredDeliveries} [${undeliveredRate}%])`);
     console.log(`Latency (ms): min=${latencyMetrics.min}, p50=${latencyMetrics.p50}, p95=${latencyMetrics.p95}, p99=${latencyMetrics.p99}, max=${latencyMetrics.max}, avg=${latencyMetrics.avg}`);
 
     console.log(`Tearing down ${clients.length} sockets...`);
     for (const c of clients) c.close();
-    await delay(1000);
+    console.log(`Cooling down ${COOLDOWN_SEC}s to let sockets drain...`);
+    await delay(COOLDOWN_SEC * 1000);
 
     const postStats = await fetchServerStats(true);
 
@@ -365,8 +418,11 @@ async function runTier(targetConcurrency, matchIds) {
         broadcastRounds: BROADCAST_ROUNDS,
         expectedDeliveries,
         actualDeliveries,
-        messagesLost,
-        lossRatePercent: lossRate,
+        ontimeDeliveries,
+        lateDeliveries,
+        lateRatePercent: lateRate,
+        undeliveredDeliveries,
+        undeliveredRatePercent: undeliveredRate,
         latencyMs: latencyMetrics,
         loadGenCpuPercent: loadGenCpu,
         serverStats: {
@@ -591,16 +647,63 @@ async function main() {
 
     if (MODE === 'all' || MODE === 'tiers') {
         for (const n of CONCURRENCY_TIERS) {
-            try {
-                const res = await runTier(n, matchIds);
-                fullReport.concurrencyTiers.push(res);
-                if (res.failed) {
-                    console.warn(`Stopping higher tiers as failure was reached at N=${n}.`);
+            const tierRuns = [];
+            let failed = false;
+            for (let r = 1; r <= REPEAT_COUNT; r++) {
+                if (REPEAT_COUNT > 1) {
+                    console.log(`\n>>> Tier N=${n} (Run ${r}/${REPEAT_COUNT}) <<<`);
+                }
+                try {
+                    const res = await runTier(n, matchIds);
+                    tierRuns.push(res);
+                    if (res.failed) {
+                        failed = true;
+                        break;
+                    }
+                } catch (err) {
+                    console.error(`Tier N=${n} Run ${r} encountered error:`, err);
+                    tierRuns.push({ concurrency: n, error: err.message, failed: true });
+                    failed = true;
                     break;
                 }
-            } catch (err) {
-                console.error(`Tier N=${n} encountered error:`, err);
-                fullReport.concurrencyTiers.push({ concurrency: n, error: err.message, failed: true });
+            }
+
+            if (tierRuns.length === 1) {
+                fullReport.concurrencyTiers.push(tierRuns[0]);
+            } else {
+                const successfulRuns = tierRuns.filter(r => !r.failed);
+                if (successfulRuns.length > 0) {
+                    const p50s = successfulRuns.map(r => r.latencyMs.p50);
+                    const p95s = successfulRuns.map(r => r.latencyMs.p95);
+                    const p99s = successfulRuns.map(r => r.latencyMs.p99);
+                    const lateRates = successfulRuns.map(r => r.lateRatePercent);
+                    const undeliveredRates = successfulRuns.map(r => r.undeliveredRatePercent);
+
+                    const calcStats = (arr) => ({
+                        mean: Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1)),
+                        min: Math.min(...arr),
+                        max: Math.max(...arr)
+                    });
+
+                    fullReport.concurrencyTiers.push({
+                        concurrency: n,
+                        repeatCount: REPEAT_COUNT,
+                        runs: tierRuns,
+                        summary: {
+                            p50: calcStats(p50s),
+                            p95: calcStats(p95s),
+                            p99: calcStats(p99s),
+                            lateRatePercent: calcStats(lateRates),
+                            undeliveredRatePercent: calcStats(undeliveredRates)
+                        }
+                    });
+                } else {
+                    fullReport.concurrencyTiers.push({ concurrency: n, failed: true, runs: tierRuns });
+                }
+            }
+
+            if (failed) {
+                console.warn(`Stopping higher tiers as failure was reached at N=${n}.`);
                 break;
             }
         }
@@ -630,14 +733,17 @@ async function main() {
 
     // Print Tables
     if (fullReport.concurrencyTiers.length > 0) {
-        console.log(`\n=================== CONCURRENCY & BREAKING POINT TABLE ===================`);
-        console.log(`| Concurrency (N) | Connected | Errors | Messages Lost | Latency p50 | Latency p95 | Latency p99 | Server CPU | LoadGen CPU | Peak RSS | Peak Heap |`);
-        console.log(`| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |`);
-        for (const r of fullReport.concurrencyTiers) {
-            if (r.failed) {
-                console.log(`| ${r.concurrency} | ${r.connected} | ${r.connectionErrors} | N/A | N/A | N/A | N/A | N/A | N/A | FAILED | ${r.failureReason || 'Error'} |`);
+        console.log(`\n=================== CONCURRENCY BENCHMARK RESULTS ===================`);
+        console.log(`| Concurrency (N) | Connected | Errors | Late (>150ms) | Undelivered | Latency p50 | Latency p95 | Latency p99 |`);
+        console.log(`| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |`);
+        for (const item of fullReport.concurrencyTiers) {
+            if (item.failed) {
+                console.log(`| ${item.concurrency} | FAILED | N/A | N/A | N/A | N/A | N/A | N/A |`);
+            } else if (item.summary) {
+                const s = item.summary;
+                console.log(`| ${item.concurrency} (${item.repeatCount} runs) | Mean | 0 | ${s.lateRatePercent.mean}% [${s.lateRatePercent.min}-${s.lateRatePercent.max}%] | ${s.undeliveredRatePercent.mean}% [${s.undeliveredRatePercent.min}-${s.undeliveredRatePercent.max}%] | ${s.p50.mean} ms [${s.p50.min}-${s.p50.max}] | ${s.p95.mean} ms [${s.p95.min}-${s.p95.max}] | ${s.p99.mean} ms [${s.p99.min}-${s.p99.max}] |`);
             } else {
-                console.log(`| ${r.concurrency} | ${r.connected} | ${r.connectionErrors} | ${r.messagesLost} (${r.lossRatePercent}%) | ${r.latencyMs.p50} ms | ${r.latencyMs.p95} ms | ${r.latencyMs.p99} ms | ${r.serverStats.peak?.cpuPercent ?? 'N/A'}% | ${r.loadGenCpuPercent}% | ${r.serverStats.peak?.rssMb ?? 'N/A'} MB | ${r.serverStats.peak?.heapUsedMb ?? 'N/A'} MB |`);
+                console.log(`| ${item.concurrency} | ${item.connected} | ${item.connectionErrors} | ${item.lateDeliveries} (${item.lateRatePercent}%) | ${item.undeliveredDeliveries} (${item.undeliveredRatePercent}%) | ${item.latencyMs.p50} ms | ${item.latencyMs.p95} ms | ${item.latencyMs.p99} ms |`);
             }
         }
     }

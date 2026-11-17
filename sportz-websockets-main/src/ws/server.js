@@ -1,5 +1,15 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { wsArcjet, isLocalhostIp, getClientIp } from "../arcjet.js";
+import {
+    getMatchChannel,
+    GLOBAL_CHANNEL,
+    isRedisActive,
+    getPublisher,
+    getSubscriber,
+    publishEvent,
+    recordReactionInRedis,
+    fetchReactionCountsFromRedis,
+} from "../redis/redis.js";
 
 const ALLOWED_EMOJIS = ['🔥', '👏', '⚡', '❤️', '⚽', '🎯'];
 
@@ -56,12 +66,68 @@ export function attachWebSocketServer(server, {
     heartbeatMs = 30000,
     maxSubscriptionsPerSocket = 50,
     knownMatchIds = null,
-    matchExists = null
+    matchExists = null,
+    redisPub = null,
+    redisSub = null,
+    enableRedis = true,
 } = {}) {
     const matchSubscribers = new Map();
     const matchReactions = new Map();
     const inFlightMatchLookups = new Map();
     const negativeMatchIdsSet = new Set();
+
+    const activePub = enableRedis ? (redisPub || (isRedisActive() ? getPublisher() : null)) : null;
+    const activeSub = enableRedis ? (redisSub || (isRedisActive() ? getSubscriber() : null)) : null;
+
+    function localBroadcastToMatch(matchId, payload) {
+        const subscribers = matchSubscribers.get(matchId);
+        if(!subscribers || subscribers.size === 0) return;
+
+        const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
+        const message = JSON.stringify(stamped);
+
+        for(const client of subscribers) {
+            if(client.readyState === WebSocket.OPEN) {
+                client.send(message);
+            }
+        }
+    }
+
+    function localBroadcastToAll(payload) {
+        const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
+        if (process.env.BENCHMARK_LOOP_STRINGIFY === '1' || process.env.BENCHMARK_LOOP_STRINGIFY === 'true') {
+            for (const client of wss.clients) {
+                if (client.readyState !== WebSocket.OPEN) continue;
+                client.send(JSON.stringify(stamped));
+            }
+            return;
+        }
+        const message = JSON.stringify(stamped);
+        for (const client of wss.clients) {
+            if(client.readyState !== WebSocket.OPEN) continue;
+            client.send(message);
+        }
+    }
+
+    if (activeSub) {
+        activeSub.subscribe(GLOBAL_CHANNEL).catch(() => {});
+        activeSub.on('message', (channel, raw) => {
+            try {
+                const parsed = JSON.parse(raw);
+                if (channel === GLOBAL_CHANNEL) {
+                    if (parsed.type === 'match_created' && parsed.data?.id) {
+                        knownMatchIdsSet.add(Number(parsed.data.id));
+                    }
+                    localBroadcastToAll(parsed);
+                } else if (channel.startsWith('sportz:match:')) {
+                    const matchId = Number(channel.split(':')[2]);
+                    if (matchId) {
+                        localBroadcastToMatch(matchId, parsed);
+                    }
+                }
+            } catch {}
+        });
+    }
 
     const knownMatchIdsSet = knownMatchIds instanceof Set
         ? knownMatchIds
@@ -133,6 +199,9 @@ export function attachWebSocketServer(server, {
     function subscribe(matchId, socket) {
         if(!matchSubscribers.has(matchId)) {
             matchSubscribers.set(matchId, new Set());
+            if (activeSub) {
+                activeSub.subscribe(getMatchChannel(matchId)).catch(() => {});
+            }
         }
 
         matchSubscribers.get(matchId).add(socket);
@@ -147,6 +216,9 @@ export function attachWebSocketServer(server, {
 
         if(subscribers.size === 0) {
             matchSubscribers.delete(matchId);
+            if (activeSub) {
+                activeSub.unsubscribe(getMatchChannel(matchId)).catch(() => {});
+            }
         }
     }
 
@@ -157,17 +229,13 @@ export function attachWebSocketServer(server, {
     }
 
     function broadcastToMatch(matchId, payload) {
-        const subscribers = matchSubscribers.get(matchId);
-        if(!subscribers || subscribers.size === 0) return;
-
         const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
-        const message = JSON.stringify(stamped);
 
-        for(const client of subscribers) {
-            if(client.readyState === WebSocket.OPEN) {
-                client.send(message);
-            }
+        if (activePub) {
+            publishEvent(getMatchChannel(matchId), stamped, activePub);
+            return;
         }
+        localBroadcastToMatch(matchId, stamped);
     }
 
     async function handleMessage(socket, data) {
@@ -205,11 +273,20 @@ export function attachWebSocketServer(server, {
             subscribe(matchId, socket);
             socket.subscriptions.add(matchId);
             sendJson(socket, { type: 'subscribed', matchId });
+
+            let reactionCounts = null;
+            if (activePub) {
+                reactionCounts = await fetchReactionCountsFromRedis(matchId, activePub);
+            }
+            if (!reactionCounts) {
+                reactionCounts = matchReactions.get(matchId) || { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 };
+            }
+
             // Send initial reaction counts
             sendJson(socket, {
                 type: 'reaction_snapshot',
                 matchId,
-                counts: matchReactions.get(matchId) || { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 }
+                counts: reactionCounts
             });
             return;
         }
@@ -223,11 +300,18 @@ export function attachWebSocketServer(server, {
 
             const emoji = message?.emoji;
             if (typeof emoji === 'string' && ALLOWED_EMOJIS.includes(emoji)) {
-                if (!matchReactions.has(matchId)) {
-                    matchReactions.set(matchId, { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 });
+                let counts = null;
+                if (activePub) {
+                    counts = await recordReactionInRedis(matchId, emoji, activePub);
                 }
-                const counts = matchReactions.get(matchId);
-                counts[emoji] = (counts[emoji] || 0) + 1;
+                if (!counts) {
+                    if (!matchReactions.has(matchId)) {
+                        matchReactions.set(matchId, { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 });
+                    }
+                    const localCounts = matchReactions.get(matchId);
+                    localCounts[emoji] = (localCounts[emoji] || 0) + 1;
+                    counts = { ...localCounts };
+                }
 
                 broadcastToMatch(matchId, {
                     type: 'reaction_broadcast',
@@ -334,10 +418,13 @@ export function attachWebSocketServer(server, {
     });
 
     const broadcastToAllClients = (arg1, arg2) => {
-        if (arg2 !== undefined) {
-            return broadcastToAll(arg1, arg2);
+        const payload = arg2 !== undefined ? arg2 : arg1;
+        const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
+        if (activePub) {
+            publishEvent(GLOBAL_CHANNEL, stamped, activePub);
+            return;
         }
-        return broadcastToAll(wss, arg1);
+        localBroadcastToAll(stamped);
     };
 
     function broadcastMatchCreated(match) {
@@ -345,7 +432,7 @@ export function attachWebSocketServer(server, {
         if (id !== null) {
             knownMatchIdsSet.add(id);
         }
-        broadcastToAll(wss, { type: 'match_created', data: match });
+        broadcastToAllClients({ type: 'match_created', data: match });
     }
 
     function broadcastCommentary(matchId, comment) {
@@ -353,7 +440,7 @@ export function attachWebSocketServer(server, {
     }
 
     function broadcastScoreUpdate(matchId, scoreData) {
-        broadcastToAll(wss, { type: 'score_update', matchId: Number(matchId), data: scoreData });
+        broadcastToAllClients({ type: 'score_update', matchId: Number(matchId), data: scoreData });
     }
 
     return {
