@@ -125,5 +125,43 @@ describe('Provider Adapter & Rate Budget Tests', () => {
             expect(scoreEv.score.homeScore).toBe(2);
             expect(scoreEv.score.awayScore).toBe(1);
         });
+
+        it('incorporates lastUpdated and from->to transitions into providerEventId to prevent collision on VAR corrections', () => {
+            // First time: 1-0 at 19:20
+            const state1 = {
+                id: 501,
+                lastUpdated: '2026-11-18T19:20:00Z',
+                status: 'IN_PLAY',
+                score: { fullTime: { home: 1, away: 0 } },
+            };
+            const events1 = mapProviderMatchToEvents(state1, 501);
+            const scoreEv1 = events1.find((e) => e.type === 'score_update');
+            expect(scoreEv1.providerEventId).toBe('football-data.org_m501_score_1_0_2026-11-18T19:20:00Z');
+
+            // Second time: 1-1 at 19:35
+            const state2 = {
+                id: 501,
+                lastUpdated: '2026-11-18T19:35:00Z',
+                status: 'IN_PLAY',
+                score: { fullTime: { home: 1, away: 1 } },
+            };
+            const events2 = mapProviderMatchToEvents(state2, 501);
+            const scoreEv2 = events2.find((e) => e.type === 'score_update');
+            expect(scoreEv2.providerEventId).toBe('football-data.org_m501_score_1_1_2026-11-18T19:35:00Z');
+
+            // Third time: VAR rollback back to 1-0 at 19:37
+            const state3 = {
+                id: 501,
+                lastUpdated: '2026-11-18T19:37:00Z',
+                status: 'IN_PLAY',
+                fromScore: { homeScore: 1, awayScore: 1 },
+                score: { fullTime: { home: 1, away: 0 } },
+            };
+            const events3 = mapProviderMatchToEvents(state3, 501);
+            const scoreEv3 = events3.find((e) => e.type === 'score_update');
+            // Unique ID containing transition and lastUpdated - NO collision with events1!
+            expect(scoreEv3.providerEventId).toBe('football-data.org_m501_score_1_1_to_1_0_2026-11-18T19:37:00Z');
+            expect(scoreEv3.providerEventId).not.toBe(scoreEv1.providerEventId);
+        });
     });
 });

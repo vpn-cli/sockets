@@ -97,17 +97,23 @@ export function mapProviderMatchToEvents(providerMatch, localMatchId = null) {
     const awayScore = providerMatch.score?.fullTime?.away ?? providerMatch.score?.halfTime?.away ?? 0;
     const status = providerMatch.status || 'SCHEDULED';
 
+    const lastUpdatedPart = providerMatch.lastUpdated ? `_${providerMatch.lastUpdated}` : '';
+    const transitionPart = providerMatch.fromScore 
+        ? `${providerMatch.fromScore.homeScore}_${providerMatch.fromScore.awayScore}_to_` 
+        : (providerMatch.from ? `${providerMatch.from}_to_` : '');
+
     const events = [];
 
     // 1. Status event
-    const providerStatusEventId = `${PROVIDER_NAME}_m${providerMatch.id}_status_${status}`;
+    const providerStatusEventId = `${PROVIDER_NAME}_m${providerMatch.id}_status_${status}${lastUpdatedPart}`;
     events.push({
         provider: PROVIDER_NAME,
         providerEventId: providerStatusEventId,
         matchId: targetMatchId,
         type: 'status_change',
         eventType: 'status_change',
-        minute: null,
+        status,
+        minute: providerMatch.minute ?? null,
         period: status === 'PAUSED' ? 'half-time' : (status === 'IN_PLAY' ? 'live' : status.toLowerCase()),
         actor: null,
         team: null,
@@ -121,20 +127,23 @@ export function mapProviderMatchToEvents(providerMatch, localMatchId = null) {
             provider: PROVIDER_NAME,
             providerMatchId: providerMatch.id,
             status,
+            lastUpdated: providerMatch.lastUpdated || null,
         },
         tags: ['status', status.toLowerCase(), 'automated-event'],
     });
 
-    // 2. Score event (derived when any team has scored)
-    if (homeScore > 0 || awayScore > 0) {
-        const providerScoreEventId = `${PROVIDER_NAME}_m${providerMatch.id}_score_${homeScore}_${awayScore}`;
+    // 2. Score event (derived when scores exist, on score corrections/rollbacks, or explicit score updates)
+    const isScoreRelevant = homeScore > 0 || awayScore > 0 || providerMatch.isScoreUpdate || providerMatch.scoreRollback || providerMatch.fromScore !== undefined;
+    if (isScoreRelevant) {
+        const providerScoreEventId = `${PROVIDER_NAME}_m${providerMatch.id}_score_${transitionPart}${homeScore}_${awayScore}${lastUpdatedPart}`;
         events.push({
             provider: PROVIDER_NAME,
             providerEventId: providerScoreEventId,
             matchId: targetMatchId,
             type: 'score_update',
             eventType: 'score_update',
-            minute: null,
+            status,
+            minute: providerMatch.minute ?? null,
             period: status === 'PAUSED' ? 'half-time' : (status === 'IN_PLAY' ? 'live' : status.toLowerCase()),
             actor: null,
             team: null,
@@ -149,6 +158,7 @@ export function mapProviderMatchToEvents(providerMatch, localMatchId = null) {
                 providerMatchId: providerMatch.id,
                 homeScore,
                 awayScore,
+                lastUpdated: providerMatch.lastUpdated || null,
             },
             tags: ['score', 'score-change', 'automated-event'],
         });

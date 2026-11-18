@@ -259,4 +259,174 @@ describe('Idempotent Ingestion & Sequence Assignment Tests', () => {
         expect(nextRes.sequence).toBe(6); // Perfectly gapless: 1, 2, 3, 4, 5, 6!
         expect(mockBroadcast).toHaveBeenCalledTimes(6);
     }, 30000);
+
+    it('VAR rollback: 1-0 -> 1-1 -> VAR rollback back to 1-0 are all broadcast and final score is 1-0', async () => {
+        const mockBroadcast = vi.fn();
+        const mockScoreBroadcast = vi.fn();
+
+        // 1. Initial 1-0 event
+        const ev1 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_var_${Date.now()}_1_0_t1`,
+            message: '[Event-based] GOAL: 1-0',
+            score: { homeScore: 1, awayScore: 0 },
+        };
+        const res1 = await ingestEvent(ev1, { db, broadcastCommentary: mockBroadcast, broadcastScoreUpdate: mockScoreBroadcast });
+        expect(res1.sequence).toBe(1);
+        expect(mockScoreBroadcast).toHaveBeenLastCalledWith(testMatchId, { homeScore: 1, awayScore: 0, seq: 1 });
+
+        // 2. Goal makes it 1-1
+        const ev2 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_var_${Date.now()}_1_1_t2`,
+            message: '[Event-based] GOAL: 1-1',
+            score: { homeScore: 1, awayScore: 1 },
+        };
+        const res2 = await ingestEvent(ev2, { db, broadcastCommentary: mockBroadcast, broadcastScoreUpdate: mockScoreBroadcast });
+        expect(res2.sequence).toBe(2);
+        expect(mockScoreBroadcast).toHaveBeenLastCalledWith(testMatchId, { homeScore: 1, awayScore: 1, seq: 2 });
+
+        // 3. VAR rolls back to 1-0 (even with lastUpdated timestamp token or duplicate event ID)
+        const ev3 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_var_${Date.now()}_1_0_t3_var`,
+            message: '[Event-based] VAR: Goal disallowed. Score returned to 1-0.',
+            score: { homeScore: 1, awayScore: 0 },
+        };
+        const res3 = await ingestEvent(ev3, { db, broadcastCommentary: mockBroadcast, broadcastScoreUpdate: mockScoreBroadcast });
+        expect(res3.sequence).toBe(3);
+        expect(mockScoreBroadcast).toHaveBeenLastCalledWith(testMatchId, { homeScore: 1, awayScore: 0, seq: 3 });
+
+        // Verify total score broadcast count = 3
+        expect(mockScoreBroadcast).toHaveBeenCalledTimes(3);
+
+        // Verify final score in database is 1-0
+        const [matchInDb] = await db.select().from(matches).where(eq(matches.id, testMatchId));
+        expect(matchInDb.homeScore).toBe(1);
+        expect(matchInDb.awayScore).toBe(0);
+    });
+
+    it('VAR rollback: 0-0 -> 1-0 -> 0-0 are both broadcast and final score is 0-0', async () => {
+        const mockBroadcast = vi.fn();
+        const mockScoreBroadcast = vi.fn();
+
+        // 1. Goal scored: 1-0
+        const ev1 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_zero_${Date.now()}_1_0`,
+            message: '[Event-based] GOAL: 1-0',
+            score: { homeScore: 1, awayScore: 0 },
+        };
+        await ingestEvent(ev1, { db, broadcastCommentary: mockBroadcast, broadcastScoreUpdate: mockScoreBroadcast });
+        expect(mockScoreBroadcast).toHaveBeenLastCalledWith(testMatchId, { homeScore: 1, awayScore: 0, seq: 1 });
+
+        // 2. VAR disallows goal: back to 0-0
+        const ev2 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_zero_${Date.now()}_0_0_rollback`,
+            message: '[Event-based] VAR: Goal cancelled. Score reverted to 0-0.',
+            score: { homeScore: 0, awayScore: 0 },
+        };
+        await ingestEvent(ev2, { db, broadcastCommentary: mockBroadcast, broadcastScoreUpdate: mockScoreBroadcast });
+        expect(mockScoreBroadcast).toHaveBeenLastCalledWith(testMatchId, { homeScore: 0, awayScore: 0, seq: 2 });
+
+        expect(mockScoreBroadcast).toHaveBeenCalledTimes(2);
+
+        // Verify final score in database is 0-0
+        const [matchInDb] = await db.select().from(matches).where(eq(matches.id, testMatchId));
+        expect(matchInDb.homeScore).toBe(0);
+        expect(matchInDb.awayScore).toBe(0);
+    });
+
+    it('records two separate PAUSED periods as distinct commentary rows', async () => {
+        // Half-Time Pause (e.g. 45 min)
+        const pause1 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_pause_${Date.now()}_status_PAUSED_2026-11-18T19:45:00Z`,
+            status: 'PAUSED',
+            message: '[Event-based] MATCH STATUS: Arsenal vs Chelsea is now PAUSED (Half-Time).',
+        };
+        const res1 = await ingestEvent(pause1, { db });
+        expect(res1.isDuplicate).toBe(false);
+        expect(res1.sequence).toBe(1);
+
+        // Resume play
+        const live = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_pause_${Date.now()}_status_IN_PLAY_2026-11-18T20:00:00Z`,
+            status: 'IN_PLAY',
+            message: '[Event-based] MATCH STATUS: Second half underway.',
+        };
+        await ingestEvent(live, { db });
+
+        // Extra-Time / Second Pause (e.g. 105 min)
+        const pause2 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_pause_${Date.now()}_status_PAUSED_2026-11-18T20:45:00Z`,
+            status: 'PAUSED',
+            message: '[Event-based] MATCH STATUS: Arsenal vs Chelsea is now PAUSED (Extra-Time Break).',
+        };
+        const res3 = await ingestEvent(pause2, { db });
+        expect(res3.isDuplicate).toBe(false);
+        expect(res3.sequence).toBe(3);
+
+        // Verify both PAUSED rows exist in commentary table
+        const pausedRows = await db
+            .select()
+            .from(commentary)
+            .where(
+                and(
+                    eq(commentary.matchId, testMatchId),
+                    eq(commentary.provider, 'football-data.org')
+                )
+            );
+        const pausedEvents = pausedRows.filter((r) => r.message.includes('PAUSED'));
+        expect(pausedEvents.length).toBe(2);
+    });
+
+    it('always upserts match current score/status even when commentary event is a duplicate', async () => {
+        const mockScoreBroadcast = vi.fn();
+        const duplicateEventId = `fd_upsert_dup_${Date.now()}`;
+
+        // 1. Ingest event first time (score 1-0)
+        const ev1 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: duplicateEventId,
+            message: 'First score',
+            score: { homeScore: 1, awayScore: 0 },
+            status: 'live',
+        };
+        const res1 = await ingestEvent(ev1, { db, broadcastScoreUpdate: mockScoreBroadcast });
+        expect(res1.isDuplicate).toBe(false);
+
+        // Manually simulate a score correction arriving with the SAME duplicateEventId but corrected score 2-0
+        const ev2 = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: duplicateEventId,
+            message: 'Duplicate event ID with score update',
+            score: { homeScore: 2, awayScore: 0 },
+            status: 'finished',
+        };
+        const res2 = await ingestEvent(ev2, { db, broadcastScoreUpdate: mockScoreBroadcast });
+        expect(res2.isDuplicate).toBe(true);
+
+        // Verify match row in database was STILL upserted to 2-0 and status 'finished'
+        const [matchInDb] = await db.select().from(matches).where(eq(matches.id, testMatchId));
+        expect(matchInDb.homeScore).toBe(2);
+        expect(matchInDb.awayScore).toBe(0);
+        expect(matchInDb.status).toBe('finished');
+
+        // And score broadcast was triggered for the correction
+        expect(mockScoreBroadcast).toHaveBeenLastCalledWith(testMatchId, { homeScore: 2, awayScore: 0, seq: 1 });
+    });
 });
