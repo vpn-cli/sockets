@@ -2,47 +2,42 @@
  * Provider Adapter: Football-Data.org (v4 API)
  * 
  * Free Tier Documentation: https://www.football-data.org/documentation/api
- * Documented Free Limit: 10 requests / minute (600 / hour, up to 14,400 / day).
- * Cache Policy: Provider caches responses for 60 seconds (Cache-Control: max-age=60).
+ * Documented Free Limit: "10 requests/minute" (enforced via HTTP 429 and X-Requests-Available-Minute).
+ * Free Tier Feature Set: Delayed scores and status changes; deep events (minute-by-minute bookings/goal details) require paid plans.
  * Attribution Requirement: "Football data provided by football-data.org"
  */
 
 export const PROVIDER_NAME = 'football-data.org';
 export const PROVIDER_ATTRIBUTION = 'Football data provided by football-data.org';
 export const PROVIDER_DOCS_URL = 'https://www.football-data.org/documentation/api';
-export const PROVIDER_FREE_TIER_DAILY_LIMIT = 14400; // 10 req/min * 1440 min/day
+export const PROVIDER_DOCUMENTED_RATE_LIMIT = '10 requests/minute';
+export const MIN_POLL_INTERVAL_SECONDS = 6; // 60s / 10 calls = 6s minimum interval
 
 /**
- * Computes the daily API call budget for a given polling cadence and fails if it exceeds free quota.
+ * Validates polling cadence against the provider's documented 10 requests/minute limit.
  */
 export function computeDailyCallBudget({
     pollIntervalSeconds = 60,
-    providerDailyLimit = PROVIDER_FREE_TIER_DAILY_LIMIT,
 } = {}) {
     if (!pollIntervalSeconds || pollIntervalSeconds <= 0) {
         throw new Error('Invalid pollIntervalSeconds: must be positive integer');
     }
 
-    const callsPerDay = Math.ceil((24 * 60 * 60) / pollIntervalSeconds);
-    const isWithinQuota = callsPerDay <= providerDailyLimit;
-
-    const report = {
-        pollIntervalSeconds,
-        callsPerDay,
-        providerDailyLimit,
-        isWithinQuota,
-        percentOfQuota: Number(((callsPerDay / providerDailyLimit) * 100).toFixed(2)),
-    };
-
-    console.log(`[Provider Budget] Cadence: 1 call every ${pollIntervalSeconds}s -> ${callsPerDay} calls/day (Free quota: ${providerDailyLimit}/day, ${report.percentOfQuota}% utilized).`);
-
-    if (!isWithinQuota) {
+    if (pollIntervalSeconds < MIN_POLL_INTERVAL_SECONDS) {
         throw new Error(
-            `Daily API call budget (${callsPerDay} calls/day) exceeds provider free quota (${providerDailyLimit} calls/day)! Polling interval must be at least ${Math.ceil((24 * 3600) / providerDailyLimit)}s.`
+            `Configured poll interval (${pollIntervalSeconds}s) violates documented rate limit (${PROVIDER_DOCUMENTED_RATE_LIMIT})! Interval must be at least ${MIN_POLL_INTERVAL_SECONDS}s.`
         );
     }
 
-    return report;
+    const callsPerMinute = 60 / pollIntervalSeconds;
+    console.log(`[Provider Budget] Polling cadence: 1 call every ${pollIntervalSeconds}s (${callsPerMinute.toFixed(2)} calls/min, documented limit: ${PROVIDER_DOCUMENTED_RATE_LIMIT}).`);
+
+    return {
+        pollIntervalSeconds,
+        callsPerMinute,
+        documentedLimit: PROVIDER_DOCUMENTED_RATE_LIMIT,
+        isWithinQuota: true,
+    };
 }
 
 /**
@@ -88,7 +83,8 @@ export async function fetchLiveMatches({
 }
 
 /**
- * Maps a provider match payload and its child events (goals, cards, status) into the normalized event schema.
+ * Maps a provider match payload into normalized events derived STRICTLY from score and status changes.
+ * (Free tier data does not include real-time player/booking events).
  * All commentary text is event-templated and explicitly labeled as event-based (not human commentary).
  */
 export function mapProviderMatchToEvents(providerMatch, localMatchId = null) {
@@ -99,88 +95,64 @@ export function mapProviderMatchToEvents(providerMatch, localMatchId = null) {
     const awayTeam = providerMatch.awayTeam?.shortName || providerMatch.awayTeam?.name || 'Away';
     const homeScore = providerMatch.score?.fullTime?.home ?? providerMatch.score?.halfTime?.home ?? 0;
     const awayScore = providerMatch.score?.fullTime?.away ?? providerMatch.score?.halfTime?.away ?? 0;
+    const status = providerMatch.status || 'SCHEDULED';
 
     const events = [];
 
-    // 1. Goals mapping
-    if (Array.isArray(providerMatch.goals)) {
-        for (let i = 0; i < providerMatch.goals.length; i++) {
-            const g = providerMatch.goals[i];
-            const minute = g.minute ?? 0;
-            const scorerName = g.scorer?.name || 'Player';
-            const teamName = g.team?.name || (g.team?.id === providerMatch.homeTeam?.id ? homeTeam : awayTeam);
-            const goalType = g.type ? ` (${g.type})` : '';
-            const assistStr = g.assist?.name ? ` (assist: ${g.assist.name})` : '';
-            const scoreSnapshot = g.score || { home: homeScore, away: awayScore };
+    // 1. Status event
+    const providerStatusEventId = `${PROVIDER_NAME}_m${providerMatch.id}_status_${status}`;
+    events.push({
+        provider: PROVIDER_NAME,
+        providerEventId: providerStatusEventId,
+        matchId: targetMatchId,
+        type: 'status_change',
+        eventType: 'status_change',
+        minute: null,
+        period: status === 'PAUSED' ? 'half-time' : (status === 'IN_PLAY' ? 'live' : status.toLowerCase()),
+        actor: null,
+        team: null,
+        message: `[Event-based] MATCH STATUS: ${homeTeam} vs ${awayTeam} is now ${status}. Current score: ${homeScore} - ${awayScore}.`,
+        score: {
+            homeScore,
+            awayScore,
+        },
+        metadata: {
+            isEventBased: true,
+            provider: PROVIDER_NAME,
+            providerMatchId: providerMatch.id,
+            status,
+        },
+        tags: ['status', status.toLowerCase(), 'automated-event'],
+    });
 
-            const providerEventId = `${PROVIDER_NAME}_m${providerMatch.id}_goal_${minute}_${g.scorer?.id || i}_${scoreSnapshot.home}_${scoreSnapshot.away}`;
-
-            events.push({
+    // 2. Score event (derived when any team has scored)
+    if (homeScore > 0 || awayScore > 0) {
+        const providerScoreEventId = `${PROVIDER_NAME}_m${providerMatch.id}_score_${homeScore}_${awayScore}`;
+        events.push({
+            provider: PROVIDER_NAME,
+            providerEventId: providerScoreEventId,
+            matchId: targetMatchId,
+            type: 'score_update',
+            eventType: 'score_update',
+            minute: null,
+            period: status === 'PAUSED' ? 'half-time' : (status === 'IN_PLAY' ? 'live' : status.toLowerCase()),
+            actor: null,
+            team: null,
+            message: `[Event-based] SCORE UPDATE: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}.`,
+            score: {
+                homeScore,
+                awayScore,
+            },
+            metadata: {
+                isEventBased: true,
                 provider: PROVIDER_NAME,
-                providerEventId,
-                matchId: targetMatchId,
-                type: 'goal',
-                eventType: 'goal',
-                minute,
-                period: providerMatch.period || (minute > 45 ? '2nd-half' : '1st-half'),
-                actor: scorerName,
-                team: teamName,
-                message: `[Event-based] GOAL! ${scorerName} scores for ${teamName} in minute ${minute}'${goalType}${assistStr}. Score: ${scoreSnapshot.home} - ${scoreSnapshot.away}`,
-                score: {
-                    homeScore: scoreSnapshot.home,
-                    awayScore: scoreSnapshot.away,
-                },
-                metadata: {
-                    isEventBased: true,
-                    provider: PROVIDER_NAME,
-                    providerMatchId: providerMatch.id,
-                    goalType: g.type,
-                    assist: g.assist?.name,
-                },
-                tags: ['goal', 'score-change', 'automated-event'],
-            });
-        }
+                providerMatchId: providerMatch.id,
+                homeScore,
+                awayScore,
+            },
+            tags: ['score', 'score-change', 'automated-event'],
+        });
     }
-
-    // 2. Bookings / Cards mapping
-    if (Array.isArray(providerMatch.bookings)) {
-        for (let i = 0; i < providerMatch.bookings.length; i++) {
-            const b = providerMatch.bookings[i];
-            const minute = b.minute ?? 0;
-            const playerName = b.player?.name || 'Player';
-            const teamName = b.team?.name || (b.team?.id === providerMatch.homeTeam?.id ? homeTeam : awayTeam);
-            const cardName = b.card === 'RED_CARD' ? 'RED CARD' : 'YELLOW CARD';
-
-            const providerEventId = `${PROVIDER_NAME}_m${providerMatch.id}_booking_${minute}_${b.player?.id || i}_${b.card}`;
-
-            events.push({
-                provider: PROVIDER_NAME,
-                providerEventId,
-                matchId: targetMatchId,
-                type: 'card',
-                eventType: b.card === 'RED_CARD' ? 'red_card' : 'card',
-                minute,
-                period: providerMatch.period || (minute > 45 ? '2nd-half' : '1st-half'),
-                actor: playerName,
-                team: teamName,
-                message: `[Event-based] ${cardName} brandished to ${playerName} (${teamName}) at minute ${minute}'.`,
-                score: {
-                    homeScore,
-                    awayScore,
-                },
-                metadata: {
-                    isEventBased: true,
-                    provider: PROVIDER_NAME,
-                    providerMatchId: providerMatch.id,
-                    card: b.card,
-                },
-                tags: ['card', b.card.toLowerCase(), 'automated-event'],
-            });
-        }
-    }
-
-    // Sort mapped events by minute ascending
-    events.sort((a, b) => (a.minute || 0) - (b.minute || 0));
 
     return events;
 }

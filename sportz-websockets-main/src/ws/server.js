@@ -9,6 +9,7 @@ import {
     publishEvent,
     recordReactionInRedis,
     fetchReactionCountsFromRedis,
+    getMatchReactionsKey,
 } from "../redis/redis.js";
 
 const ALLOWED_EMOJIS = ['🔥', '👏', '⚡', '❤️', '⚽', '🎯'];
@@ -73,6 +74,7 @@ export function attachWebSocketServer(server, {
 } = {}) {
     const matchSubscribers = new Map();
     const matchReactions = new Map();
+    const localReactionDeltas = new Map();
     const inFlightMatchLookups = new Map();
     const negativeMatchIdsSet = new Set();
     const matchEventBuffer = new Map();
@@ -89,6 +91,12 @@ export function attachWebSocketServer(server, {
 
         for(const client of subscribers) {
             if(client.readyState === WebSocket.OPEN) {
+                // If this socket is actively replaying missed history for this match,
+                // queue live broadcasts so replay messages arrive first without out-of-order drops.
+                if (client.replayingMatches && client.replayingMatches.has(matchId)) {
+                    client.replayingMatches.get(matchId).push(stamped);
+                    continue;
+                }
                 client.send(message);
             }
         }
@@ -134,6 +142,23 @@ export function attachWebSocketServer(server, {
             activeSub.subscribe(GLOBAL_CHANNEL).catch(() => {});
             for (const matchId of matchSubscribers.keys()) {
                 activeSub.subscribe(getMatchChannel(matchId)).catch(() => {});
+            }
+        });
+    }
+
+    if (activePub) {
+        activePub.on('ready', async () => {
+            if (localReactionDeltas.size > 0) {
+                console.log(`🔄 [Redis Pub] Synchronizing ${localReactionDeltas.size} match reaction delta(s) to Redis...`);
+                for (const [matchId, deltas] of localReactionDeltas.entries()) {
+                    const key = getMatchReactionsKey(matchId);
+                    for (const [emoji, count] of Object.entries(deltas)) {
+                        if (count > 0) {
+                            await activePub.hincrby(key, emoji, count).catch(() => {});
+                        }
+                    }
+                }
+                localReactionDeltas.clear();
             }
         });
     }
@@ -232,6 +257,9 @@ export function attachWebSocketServer(server, {
     }
 
     function cleanupSubscriptions(socket) {
+        if (socket.replayingMatches) {
+            socket.replayingMatches.clear();
+        }
         for(const matchId of socket.subscriptions) {
             unsubscribe(matchId, socket);
         }
@@ -291,8 +319,18 @@ export function attachWebSocketServer(server, {
                 return;
             }
 
+            const lastSeq = typeof message?.lastSeq === 'number' && Number.isInteger(message.lastSeq) && message.lastSeq >= 0
+                ? message.lastSeq
+                : null;
+
             subscribe(matchId, socket);
             socket.subscriptions.add(matchId);
+            if (lastSeq !== null) {
+                // Initialize replay queue for this socket & match so concurrent live events are held in order
+                socket.replayingMatches = socket.replayingMatches || new Map();
+                socket.replayingMatches.set(matchId, []);
+            }
+
             sendJson(socket, { type: 'subscribed', matchId });
 
             let reactionCounts = null;
@@ -311,93 +349,100 @@ export function attachWebSocketServer(server, {
             });
 
             // Replay Missed Messages on Reconnect (seq > lastSeq)
-            const lastSeq = typeof message?.lastSeq === 'number' && Number.isInteger(message.lastSeq) && message.lastSeq >= 0
-                ? message.lastSeq
-                : null;
-
             if (lastSeq !== null) {
                 let replayedEvents = null;
                 let isOversizedGap = false;
 
-                // 1. Fetch from Postgres if configured
-                if (process.env.DATABASE_URL) {
-                    try {
-                        const { db } = await import("../db/db.js");
-                        const { commentary, matches } = await import("../db/schema.js");
-                        const { eq, gt, asc, desc, and } = await import("drizzle-orm");
+                try {
+                    // 1. Fetch from Postgres if configured
+                    if (process.env.DATABASE_URL) {
+                        try {
+                            const { db } = await import("../db/db.js");
+                            const { commentary, matches } = await import("../db/schema.js");
+                            const { eq, gt, asc, desc, and } = await import("drizzle-orm");
 
-                        // Fetch up to 201 events to detect if gap exceeds 200
-                        const rows = await db
-                            .select()
-                            .from(commentary)
-                            .where(and(eq(commentary.matchId, matchId), gt(commentary.sequence, lastSeq)))
-                            .orderBy(asc(commentary.sequence))
-                            .limit(201);
-
-                        if (rows.length > 200) {
-                            isOversizedGap = true;
-                            const [matchRow] = await db
-                                .select()
-                                .from(matches)
-                                .where(eq(matches.id, matchId))
-                                .limit(1);
-
-                            const recent = await db
+                            // Fetch up to 201 events to detect if gap exceeds 200
+                            const rows = await db
                                 .select()
                                 .from(commentary)
-                                .where(eq(commentary.matchId, matchId))
-                                .orderBy(desc(commentary.sequence))
-                                .limit(50);
+                                .where(and(eq(commentary.matchId, matchId), gt(commentary.sequence, lastSeq)))
+                                .orderBy(asc(commentary.sequence))
+                                .limit(201);
 
+                            if (rows.length > 200) {
+                                isOversizedGap = true;
+                                const [matchRow] = await db
+                                    .select()
+                                    .from(matches)
+                                    .where(eq(matches.id, matchId))
+                                    .limit(1);
+
+                                const recent = await db
+                                    .select()
+                                    .from(commentary)
+                                    .where(eq(commentary.matchId, matchId))
+                                    .orderBy(desc(commentary.sequence))
+                                    .limit(50);
+
+                                sendJson(socket, {
+                                    type: 'snapshot',
+                                    matchId,
+                                    reason: 'gap_exceeded',
+                                    match: matchRow || null,
+                                    recentCommentary: recent.reverse(),
+                                });
+                            } else {
+                                replayedEvents = rows;
+                            }
+                        } catch (err) {
+                            console.warn(`[Replay] DB query skipped/failed for match ${matchId}:`, err.message);
+                        }
+                    }
+
+                    // 2. Fallback to in-memory event buffer (for local/test mode without DB)
+                    if (!isOversizedGap && replayedEvents === null) {
+                        const buffer = matchEventBuffer.get(matchId) || [];
+                        const filtered = buffer.filter((e) => (e.sequence || e.seq) > lastSeq);
+                        const currentMax = buffer.length > 0 ? (buffer[buffer.length - 1].sequence || buffer[buffer.length - 1].seq) : lastSeq;
+
+                        if (currentMax - lastSeq > 200) {
                             sendJson(socket, {
                                 type: 'snapshot',
                                 matchId,
                                 reason: 'gap_exceeded',
-                                match: matchRow || null,
-                                recentCommentary: recent.reverse(),
+                                recentCommentary: buffer.slice(-50),
                             });
+                            isOversizedGap = true;
                         } else {
-                            replayedEvents = rows;
+                            replayedEvents = filtered;
                         }
-                    } catch (err) {
-                        console.warn(`[Replay] DB query skipped/failed for match ${matchId}:`, err.message);
                     }
-                }
 
-                // 2. Fallback to in-memory event buffer (for local/test mode without DB)
-                if (!isOversizedGap && replayedEvents === null) {
-                    const buffer = matchEventBuffer.get(matchId) || [];
-                    const filtered = buffer.filter((e) => (e.sequence || e.seq) > lastSeq);
-                    const currentMax = buffer.length > 0 ? (buffer[buffer.length - 1].sequence || buffer[buffer.length - 1].seq) : lastSeq;
-
-                    if (currentMax - lastSeq > 200) {
+                    // 3. Deliver replayed events in order with no duplicates
+                    if (!isOversizedGap && Array.isArray(replayedEvents) && replayedEvents.length > 0) {
                         sendJson(socket, {
-                            type: 'snapshot',
+                            type: 'replay_events',
                             matchId,
-                            reason: 'gap_exceeded',
-                            recentCommentary: buffer.slice(-50),
+                            events: replayedEvents,
+                            count: replayedEvents.length,
                         });
-                        isOversizedGap = true;
-                    } else {
-                        replayedEvents = filtered;
+
+                        for (const ev of replayedEvents) {
+                            sendJson(socket, {
+                                type: 'commentary',
+                                data: ev,
+                                isReplay: true,
+                            });
+                        }
                     }
-                }
-
-                // 3. Deliver replayed events in order with no duplicates
-                if (!isOversizedGap && Array.isArray(replayedEvents) && replayedEvents.length > 0) {
-                    sendJson(socket, {
-                        type: 'replay_events',
-                        matchId,
-                        events: replayedEvents,
-                        count: replayedEvents.length,
-                    });
-
-                    for (const ev of replayedEvents) {
-                        sendJson(socket, {
-                            type: 'commentary',
-                            data: ev,
-                            isReplay: true,
-                        });
+                } finally {
+                    // 4. Flush any live events buffered while replay was in flight
+                    if (socket.replayingMatches && socket.replayingMatches.has(matchId)) {
+                        const queuedLive = socket.replayingMatches.get(matchId);
+                        socket.replayingMatches.delete(matchId);
+                        for (const liveMsg of queuedLive) {
+                            sendJson(socket, liveMsg);
+                        }
                     }
                 }
             }
@@ -425,6 +470,13 @@ export function attachWebSocketServer(server, {
                     const localCounts = matchReactions.get(matchId);
                     localCounts[emoji] = (localCounts[emoji] || 0) + 1;
                     counts = { ...localCounts };
+
+                    // Accumulate delta for sync back to Redis when connection is restored
+                    if (!localReactionDeltas.has(matchId)) {
+                        localReactionDeltas.set(matchId, {});
+                    }
+                    const deltas = localReactionDeltas.get(matchId);
+                    deltas[emoji] = (deltas[emoji] || 0) + 1;
                 }
 
                 broadcastToMatch(matchId, {

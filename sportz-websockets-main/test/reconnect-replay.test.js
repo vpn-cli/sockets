@@ -329,4 +329,59 @@ describe('Reconnect Replay & Sequence Recovery Tests', () => {
         expect(replayMsg.count).toBe(3);
         expect(replayMsg.events.map((e) => e.sequence)).toEqual([2, 3, 4]);
     });
+
+    it('replay race: new live event published while replay is in flight -> no event dropped and order preserved', async () => {
+        // 1. Seed match with events seq 1, 2, 3, 4, 5
+        const initialEvents = Array.from({ length: 5 }, (_, i) => ({
+            matchId: testMatchId,
+            minute: (i + 1) * 10,
+            sequence: i + 1,
+            message: `Historical event ${i + 1}`,
+            provider: 'test-race',
+            providerEventId: `race_${i + 1}_${Date.now()}`,
+        }));
+        await db.insert(commentary).values(initialEvents);
+        await db.update(matches).set({ lastSeq: 5 }).where(eq(matches.id, testMatchId));
+
+        // 2. Client connects with lastSeq = 2 (expecting replay of 3, 4, 5)
+        const client = await connectWs(wsUrlA);
+        await awaitMessage(client, 'welcome');
+
+        client.send(JSON.stringify({
+            type: 'subscribe',
+            matchId: testMatchId,
+            lastSeq: 2,
+        }));
+
+        await awaitMessage(client, 'subscribed');
+
+        // 3. Concurrently publish live event 6 while replay is in flight
+        const liveEvent = {
+            matchId: testMatchId,
+            minute: 65,
+            sequence: 6,
+            message: 'Live concurrent event 6 during replay',
+            provider: 'test-race',
+            providerEventId: `race_6_${Date.now()}`,
+        };
+        handlesA.broadcastCommentary(testMatchId, liveEvent);
+
+        await awaitMessage(client, 'reaction_snapshot');
+
+        // Replay packet arrives
+        const replayMsg = await awaitMessage(client, 'replay_events');
+        expect(replayMsg.count).toBe(3);
+        expect(replayMsg.events.map((e) => e.sequence)).toEqual([3, 4, 5]);
+
+        // Collect all individual commentary messages
+        const receivedSeqs = [];
+        for (let i = 0; i < 4; i++) {
+            const msg = await awaitMessage(client, 'commentary', 10000);
+            receivedSeqs.push(msg.data.sequence);
+        }
+
+        // Verify that NO events were dropped!
+        // Both replayed events (3, 4, 5) AND live event (6) arrived in order!
+        expect(receivedSeqs).toEqual([3, 4, 5, 6]);
+    }, 30000);
 });

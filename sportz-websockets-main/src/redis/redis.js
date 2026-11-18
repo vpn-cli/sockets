@@ -113,17 +113,25 @@ export function getSubscriber() {
 
 const DEFAULT_EMOJI_COUNTS = { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 };
 
+function withTimeout(promise, ms, operationName = 'Redis operation') {
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${operationName} timed out after ${ms}ms`)), ms);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Publish payload to a Redis channel with fallback detection
  */
-export async function publishEvent(channel, payload, client = pubClient) {
+export async function publishEvent(channel, payload, client = pubClient, timeoutMs = 500) {
     const redis = client || pubClient;
     if (!redis || redis.status !== 'ready') {
         return { success: false, reason: 'Redis not ready' };
     }
     try {
         const message = typeof payload === 'string' ? payload : JSON.stringify(payload);
-        const count = await redis.publish(channel, message);
+        const count = await withTimeout(redis.publish(channel, message), timeoutMs, `Publish to ${channel}`);
         return { success: true, count };
     } catch (err) {
         console.error(`🚨 [REDIS FAILURE] Publish to ${channel} failed:`, err.message);
@@ -134,13 +142,13 @@ export async function publishEvent(channel, payload, client = pubClient) {
 /**
  * Atomic increment of an emoji reaction in Redis Hash
  */
-export async function recordReactionInRedis(matchId, emoji, client = pubClient) {
+export async function recordReactionInRedis(matchId, emoji, client = pubClient, timeoutMs = 500) {
     const redis = client || pubClient;
     if (!redis || redis.status !== 'ready') return null;
     const key = getMatchReactionsKey(matchId);
     try {
-        await redis.hincrby(key, emoji, 1);
-        const rawCounts = await redis.hgetall(key);
+        await withTimeout(redis.hincrby(key, emoji, 1), timeoutMs, `Reaction hincrby for match ${matchId}`);
+        const rawCounts = await withTimeout(redis.hgetall(key), timeoutMs, `Reaction hgetall for match ${matchId}`);
         const counts = { ...DEFAULT_EMOJI_COUNTS };
         for (const [k, v] of Object.entries(rawCounts || {})) {
             counts[k] = parseInt(v, 10) || 0;
@@ -155,12 +163,12 @@ export async function recordReactionInRedis(matchId, emoji, client = pubClient) 
 /**
  * Fetch emoji reaction counts snapshot from Redis Hash
  */
-export async function fetchReactionCountsFromRedis(matchId, client = pubClient) {
+export async function fetchReactionCountsFromRedis(matchId, client = pubClient, timeoutMs = 500) {
     const redis = client || pubClient;
     if (!redis || redis.status !== 'ready') return null;
     const key = getMatchReactionsKey(matchId);
     try {
-        const rawCounts = await redis.hgetall(key);
+        const rawCounts = await withTimeout(redis.hgetall(key), timeoutMs, `Fetch reactions for match ${matchId}`);
         if (!rawCounts || Object.keys(rawCounts).length === 0) {
             return { ...DEFAULT_EMOJI_COUNTS };
         }

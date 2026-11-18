@@ -30,6 +30,7 @@ export const useWebSocket = (
   const isIntentionalClose = useRef(false);
   const subscribedMatchIdsRef = useRef(new Set<string>());
   const lastSeenSeqByMatch = useRef<Map<string, number>>(new Map());
+  const seenSeqsByMatch = useRef<Map<string, Set<number>>>(new Map());
   const onMessageRef = useRef(onMessage);
 
   useEffect(() => {
@@ -108,25 +109,42 @@ export const useWebSocket = (
         try {
           const data = JSON.parse(event.data);
 
-          // Track last seen sequence and drop duplicates by sequence
+          // Track seen sequences per match: drop true duplicates, but NEVER drop missed events due to out-of-order live events
           if (data?.type === 'commentary' && data?.data) {
             const matchId = String(data.data.matchId || data.matchId);
             const seq = Number(data.data.sequence ?? data.data.seq);
             if (matchId && Number.isInteger(seq) && seq > 0) {
-              const prevSeq = lastSeenSeqByMatch.current.get(matchId) || 0;
-              if (seq <= prevSeq) {
+              let seen = seenSeqsByMatch.current.get(matchId);
+              if (!seen) {
+                seen = new Set();
+                seenSeqsByMatch.current.set(matchId, seen);
+              }
+
+              if (seen.has(seq)) {
                 // Drop duplicate message
                 return;
               }
-              lastSeenSeqByMatch.current.set(matchId, seq);
+              seen.add(seq);
+
+              const prevMax = lastSeenSeqByMatch.current.get(matchId) || 0;
+              if (seq > prevMax) {
+                lastSeenSeqByMatch.current.set(matchId, seq);
+              }
             }
           } else if (data?.type === 'replay_events' && Array.isArray(data?.events)) {
             const matchId = String(data.matchId);
+            let seen = seenSeqsByMatch.current.get(matchId);
+            if (!seen) {
+              seen = new Set();
+              seenSeqsByMatch.current.set(matchId, seen);
+            }
+
             for (const ev of data.events) {
               const seq = Number(ev.sequence ?? ev.seq);
               if (seq > 0) {
-                const prevSeq = lastSeenSeqByMatch.current.get(matchId) || 0;
-                if (seq > prevSeq) {
+                seen.add(seq);
+                const prevMax = lastSeenSeqByMatch.current.get(matchId) || 0;
+                if (seq > prevMax) {
                   lastSeenSeqByMatch.current.set(matchId, seq);
                 }
               }

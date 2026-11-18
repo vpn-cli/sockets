@@ -6,7 +6,8 @@ import {
     PROVIDER_NAME,
     PROVIDER_ATTRIBUTION,
     PROVIDER_DOCS_URL,
-    PROVIDER_FREE_TIER_DAILY_LIMIT,
+    PROVIDER_DOCUMENTED_RATE_LIMIT,
+    MIN_POLL_INTERVAL_SECONDS,
     computeDailyCallBudget,
     fetchLiveMatches,
     mapProviderMatchToEvents,
@@ -16,26 +17,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 describe('Provider Adapter & Rate Budget Tests', () => {
-    it('documents provider, free tier limits and attribution', () => {
+    it('documents provider, documented limit of 10 calls/min and attribution', () => {
         expect(PROVIDER_NAME).toBe('football-data.org');
         expect(PROVIDER_ATTRIBUTION).toContain('football-data.org');
         expect(PROVIDER_DOCS_URL).toBe('https://www.football-data.org/documentation/api');
-        expect(PROVIDER_FREE_TIER_DAILY_LIMIT).toBe(14400); // 10 req/min
+        expect(PROVIDER_DOCUMENTED_RATE_LIMIT).toBe('10 requests/minute');
+        expect(MIN_POLL_INTERVAL_SECONDS).toBe(6);
     });
 
     describe('computeDailyCallBudget', () => {
-        it('computes 1,440 calls/day for 60s polling and passes within free tier quota', () => {
+        it('passes for 60s polling interval (1 call/min <= 10 calls/min)', () => {
             const budget = computeDailyCallBudget({ pollIntervalSeconds: 60 });
-            expect(budget.callsPerDay).toBe(1440);
+            expect(budget.callsPerMinute).toBe(1);
             expect(budget.isWithinQuota).toBe(true);
-            expect(budget.percentOfQuota).toBe(10); // 1440 / 14400 = 10%
+            expect(budget.documentedLimit).toBe('10 requests/minute');
         });
 
-        it('fails with descriptive error if polling interval exceeds free tier quota', () => {
+        it('fails with descriptive error if polling interval violates 10 calls/min (< 6s)', () => {
             expect(() => {
-                // Polling every 5 seconds = 17,280 calls/day > 14,400 quota
-                computeDailyCallBudget({ pollIntervalSeconds: 5, providerDailyLimit: 14400 });
-            }).toThrow(/Daily API call budget .* exceeds provider free quota/);
+                computeDailyCallBudget({ pollIntervalSeconds: 5 });
+            }).toThrow(/violates documented rate limit \(10 requests\/minute\)/);
         });
     });
 
@@ -92,50 +93,37 @@ describe('Provider Adapter & Rate Budget Tests', () => {
     });
 
     describe('mapProviderMatchToEvents with saved fixture', () => {
-        it('correctly maps goals and bookings from saved Football-Data.org fixture with event-based labeling', async () => {
+        it('derives events strictly from score and status changes with event-based labeling', async () => {
             const fixturePath = path.resolve(__dirname, 'fixtures/football-data-live.json');
             const rawFixture = JSON.parse(await fs.readFile(fixturePath, 'utf8'));
 
-            const match1 = rawFixture.matches[0]; // Man City vs Man United
+            const match1 = rawFixture.matches[0]; // Man City vs Man United (score 2-1, IN_PLAY)
             const events = mapProviderMatchToEvents(match1, 999);
 
-            // Fixture has 3 goals + 2 bookings = 5 events
-            expect(events.length).toBe(5);
+            // Expect 2 derived events: 1 status change event and 1 score update event
+            expect(events.length).toBe(2);
 
-            // 1. Verify Goal 1 (Haaland, 23')
-            const goal1 = events.find((e) => e.actor === 'Erling Haaland');
-            expect(goal1).toBeDefined();
-            expect(goal1.matchId).toBe(999);
-            expect(goal1.type).toBe('goal');
-            expect(goal1.minute).toBe(23);
-            expect(goal1.score.homeScore).toBe(1);
-            expect(goal1.score.awayScore).toBe(0);
-            expect(goal1.provider).toBe('football-data.org');
-            expect(goal1.providerEventId).toContain('goal_23');
-            expect(goal1.message).toContain('[Event-based] GOAL!');
-            expect(goal1.message).toContain('Erling Haaland');
-            expect(goal1.metadata.isEventBased).toBe(true);
-            expect(goal1.metadata.assist).toBe('Kevin De Bruyne');
+            // 1. Status event
+            const statusEv = events.find((e) => e.type === 'status_change');
+            expect(statusEv).toBeDefined();
+            expect(statusEv.matchId).toBe(999);
+            expect(statusEv.provider).toBe('football-data.org');
+            expect(statusEv.providerEventId).toBe(`football-data.org_m${match1.id}_status_IN_PLAY`);
+            expect(statusEv.message).toContain('[Event-based] MATCH STATUS');
+            expect(statusEv.message).toContain('IN_PLAY');
+            expect(statusEv.score.homeScore).toBe(2);
+            expect(statusEv.score.awayScore).toBe(1);
 
-            // 2. Verify Penalty Goal (Bruno Fernandes, 38')
-            const penaltyGoal = events.find((e) => e.actor === 'Bruno Fernandes');
-            expect(penaltyGoal).toBeDefined();
-            expect(penaltyGoal.minute).toBe(38);
-            expect(penaltyGoal.score.homeScore).toBe(1);
-            expect(penaltyGoal.score.awayScore).toBe(1);
-            expect(penaltyGoal.message).toContain('(PENALTY)');
-
-            // 3. Verify Yellow Card (Casemiro, 31')
-            const card1 = events.find((e) => e.actor === 'Casemiro');
-            expect(card1).toBeDefined();
-            expect(card1.type).toBe('card');
-            expect(card1.minute).toBe(31);
-            expect(card1.message).toContain('[Event-based] YELLOW CARD');
-            expect(card1.metadata.isEventBased).toBe(true);
-
-            // 4. Events sorted by minute ascending
-            const minutes = events.map((e) => e.minute);
-            expect(minutes).toEqual([23, 31, 38, 45, 52]);
+            // 2. Score event
+            const scoreEv = events.find((e) => e.type === 'score_update');
+            expect(scoreEv).toBeDefined();
+            expect(scoreEv.matchId).toBe(999);
+            expect(scoreEv.provider).toBe('football-data.org');
+            expect(scoreEv.providerEventId).toBe(`football-data.org_m${match1.id}_score_2_1`);
+            expect(scoreEv.message).toContain('[Event-based] SCORE UPDATE');
+            expect(scoreEv.message).toContain('2 - 1');
+            expect(scoreEv.score.homeScore).toBe(2);
+            expect(scoreEv.score.awayScore).toBe(1);
         });
     });
 });

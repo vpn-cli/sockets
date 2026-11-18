@@ -1,13 +1,17 @@
-import { sql, eq, and } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { matches, commentary } from "../db/schema.js";
 
 /**
  * Ingests a match event idempotently:
- * 1. Checks (provider, provider_event_id) unique constraint to prevent duplicate ingestion.
- * 2. Assigns a per-match monotonically increasing sequence number in the SAME transaction.
- * 3. Updates match score (if score event).
- * 4. Inserts commentary row with assigned sequence.
- * 5. Broadcasts to WebSocket subscribers ONLY AFTER transaction commit succeeds.
+ * 1. Locks the match row (FOR UPDATE) to serialize concurrent event processing for the match.
+ * 2. Checks candidate sequence: candidateSeq = match.lastSeq + 1.
+ * 3. Inserts commentary row with ON CONFLICT (provider, provider_event_id) DO NOTHING.
+ * 4. If INSERT affects 0 rows (duplicate event):
+ *    - DO NOT update matches.last_seq (prevent burning/wasting sequence numbers).
+ *    - Returns duplicate status immediately without broadcasting.
+ * 5. If INSERT succeeds (affected 1 row):
+ *    - Updates matches.last_seq = candidateSeq in the SAME transaction.
+ *    - Broadcasts to WebSocket subscribers ONLY AFTER transaction commit.
  */
 export async function ingestEvent(event, {
     db,
@@ -22,10 +26,61 @@ export async function ingestEvent(event, {
     }
 
     const result = await db.transaction(async (tx) => {
-        // 1. Idempotency Check: (provider, provider_event_id)
+        // 1. Lock match row to serialize sequence generation for this match
+        const [matchRow] = await tx
+            .select({
+                id: matches.id,
+                lastSeq: matches.lastSeq,
+                homeScore: matches.homeScore,
+                awayScore: matches.awayScore,
+            })
+            .from(matches)
+            .where(eq(matches.id, event.matchId))
+            .for('update');
+
+        if (!matchRow) {
+            throw new Error(`Match ${event.matchId} not found`);
+        }
+
+        const candidateSeq = (matchRow.lastSeq || 0) + 1;
+
+        // 2. Try inserting commentary with candidateSeq
+        const insertValues = {
+            matchId: event.matchId,
+            minute: event.minute ?? null,
+            sequence: candidateSeq,
+            period: event.period ?? null,
+            eventType: event.eventType || event.type || null,
+            actor: event.actor ?? null,
+            team: event.team ?? null,
+            message: event.message || '',
+            provider: event.provider ?? null,
+            providerEventId: event.providerEventId ?? null,
+            metadata: event.metadata ?? null,
+            tags: event.tags ?? null,
+        };
+
+        let insertedRows = [];
         if (event.provider && event.providerEventId) {
+            insertedRows = await tx
+                .insert(commentary)
+                .values(insertValues)
+                .onConflictDoNothing({
+                    target: [commentary.provider, commentary.providerEventId],
+                })
+                .returning();
+        } else {
+            insertedRows = await tx
+                .insert(commentary)
+                .values(insertValues)
+                .returning();
+        }
+
+        // 3. If INSERT affected 0 rows, this event is a duplicate!
+        // DO NOT update matches.last_seq, ensuring no sequence gaps.
+        if (!insertedRows || insertedRows.length === 0) {
             const [existing] = await tx
-                .select({ id: commentary.id, sequence: commentary.sequence })
+                .select({ sequence: commentary.sequence })
                 .from(commentary)
                 .where(
                     and(
@@ -35,18 +90,17 @@ export async function ingestEvent(event, {
                 )
                 .limit(1);
 
-            if (existing) {
-                return {
-                    isDuplicate: true,
-                    existingId: existing.id,
-                    sequence: existing.sequence,
-                };
-            }
+            return {
+                isDuplicate: true,
+                sequence: existing?.sequence ?? matchRow.lastSeq,
+            };
         }
 
-        // 2. Monotonically increment matches.last_seq in the same transaction
+        const insertedCommentary = insertedRows[0];
+
+        // 4. Update match last_seq only when row was actually inserted
         const updatePayload = {
-            lastSeq: sql`${matches.lastSeq} + 1`,
+            lastSeq: candidateSeq,
         };
 
         if (event.score && typeof event.score.homeScore === 'number' && typeof event.score.awayScore === 'number') {
@@ -65,36 +119,11 @@ export async function ingestEvent(event, {
                 awayScore: matches.awayScore,
             });
 
-        if (!updatedMatch) {
-            throw new Error(`Match ${event.matchId} not found`);
-        }
-
-        const assignedSeq = updatedMatch.lastSeq;
-
-        // 3. Insert commentary row with the assigned sequence
-        const [insertedCommentary] = await tx
-            .insert(commentary)
-            .values({
-                matchId: event.matchId,
-                minute: event.minute ?? null,
-                sequence: assignedSeq,
-                period: event.period ?? null,
-                eventType: event.eventType || event.type || null,
-                actor: event.actor ?? null,
-                team: event.team ?? null,
-                message: event.message || '',
-                provider: event.provider ?? null,
-                providerEventId: event.providerEventId ?? null,
-                metadata: event.metadata ?? null,
-                tags: event.tags ?? null,
-            })
-            .returning();
-
         return {
             isDuplicate: false,
             commentary: insertedCommentary,
             match: updatedMatch,
-            sequence: assignedSeq,
+            sequence: candidateSeq,
         };
     });
 
@@ -102,7 +131,7 @@ export async function ingestEvent(event, {
         return { isDuplicate: true, sequence: result.sequence };
     }
 
-    // 4. CRITICAL: Broadcast ONLY AFTER transaction commit!
+    // 5. Broadcast ONLY AFTER commit and ONLY if not duplicate
     if (typeof broadcastCommentary === 'function' && result.commentary) {
         broadcastCommentary(event.matchId, result.commentary);
     }

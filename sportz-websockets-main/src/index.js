@@ -35,13 +35,18 @@ app.get('/', (req, res) => {
 });
 
 app.get('/config', (req, res) => {
-    const dataSource = (process.env.DATA_SOURCE || 'simulated').toLowerCase();
+    const rawDataSource = (process.env.DATA_SOURCE || 'simulated').toLowerCase();
+    // Football-data.org free tier provides delayed scores
+    const dataSource = rawDataSource === 'live' ? 'delayed' : rawDataSource;
     res.json({
         dataSource,
+        rawDataSource,
+        isDelayed: rawDataSource === 'live',
         provider: 'football-data.org',
         providerName: 'Football-Data.org',
         attribution: 'Football data provided by football-data.org',
         attributionUrl: 'https://www.football-data.org/',
+        documentedLimits: '10 requests/minute',
     });
 });
 

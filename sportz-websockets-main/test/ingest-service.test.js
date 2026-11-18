@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ingestEvent } from '../src/ingestor/ingest-service.js';
 import { db } from '../src/db/db.js';
@@ -139,4 +140,123 @@ describe('Idempotent Ingestion & Sequence Assignment Tests', () => {
         const [matchRow] = await db.select().from(matches).where(eq(matches.id, testMatchId));
         expect(matchRow.lastSeq).toBe(1);
     });
+
+    it('the same full-match payload ingested 3 times gives no gaps, no extra rows, no extra broadcasts', async () => {
+        const mockBroadcast = vi.fn();
+        const mockScoreBroadcast = vi.fn();
+
+        const ts = Date.now();
+        // A full match sequence: Kickoff, Goal Home, Goal Away, Goal Home, Fulltime
+        const matchEvents = [
+            {
+                matchId: testMatchId,
+                provider: 'football-data.org',
+                providerEventId: `fm_${ts}_status_in_play`,
+                message: '[Event-based] MATCH STATUS: Arsenal vs Chelsea is now IN_PLAY.',
+            },
+            {
+                matchId: testMatchId,
+                provider: 'football-data.org',
+                providerEventId: `fm_${ts}_score_1_0`,
+                score: { homeScore: 1, awayScore: 0 },
+                message: '[Event-based] SCORE UPDATE: Arsenal 1 - 0 Chelsea.',
+            },
+            {
+                matchId: testMatchId,
+                provider: 'football-data.org',
+                providerEventId: `fm_${ts}_score_1_1`,
+                score: { homeScore: 1, awayScore: 1 },
+                message: '[Event-based] SCORE UPDATE: Arsenal 1 - 1 Chelsea.',
+            },
+            {
+                matchId: testMatchId,
+                provider: 'football-data.org',
+                providerEventId: `fm_${ts}_score_2_1`,
+                score: { homeScore: 2, awayScore: 1 },
+                message: '[Event-based] SCORE UPDATE: Arsenal 2 - 1 Chelsea.',
+            },
+            {
+                matchId: testMatchId,
+                provider: 'football-data.org',
+                providerEventId: `fm_${ts}_status_finished`,
+                message: '[Event-based] MATCH STATUS: Arsenal vs Chelsea is now FINISHED.',
+            },
+        ];
+
+        // --- PASS 1: Initial Ingest ---
+        const pass1Results = [];
+        for (const ev of matchEvents) {
+            const res = await ingestEvent(ev, {
+                db,
+                broadcastCommentary: mockBroadcast,
+                broadcastScoreUpdate: mockScoreBroadcast,
+            });
+            pass1Results.push(res);
+        }
+
+        // Verify pass 1 assigned strictly increasing 1..5
+        expect(pass1Results.map((r) => r.sequence)).toEqual([1, 2, 3, 4, 5]);
+        expect(pass1Results.every((r) => r.isDuplicate === false)).toBe(true);
+        expect(mockBroadcast).toHaveBeenCalledTimes(5);
+        expect(mockScoreBroadcast).toHaveBeenCalledTimes(3);
+
+        // --- PASS 2: Re-ingest the EXACT same 5 events ---
+        const pass2Results = [];
+        for (const ev of matchEvents) {
+            const res = await ingestEvent(ev, {
+                db,
+                broadcastCommentary: mockBroadcast,
+                broadcastScoreUpdate: mockScoreBroadcast,
+            });
+            pass2Results.push(res);
+        }
+
+        // Verify all flagged as duplicate, sequences unchanged
+        expect(pass2Results.every((r) => r.isDuplicate === true)).toBe(true);
+        expect(mockBroadcast).toHaveBeenCalledTimes(5); // NO extra broadcasts
+        expect(mockScoreBroadcast).toHaveBeenCalledTimes(3); // NO extra broadcasts
+
+        // --- PASS 3: Re-ingest the EXACT same 5 events a third time ---
+        const pass3Results = [];
+        for (const ev of matchEvents) {
+            const res = await ingestEvent(ev, {
+                db,
+                broadcastCommentary: mockBroadcast,
+                broadcastScoreUpdate: mockScoreBroadcast,
+            });
+            pass3Results.push(res);
+        }
+
+        expect(pass3Results.every((r) => r.isDuplicate === true)).toBe(true);
+        expect(mockBroadcast).toHaveBeenCalledTimes(5); // STILL 5 broadcasts
+        expect(mockScoreBroadcast).toHaveBeenCalledTimes(3); // STILL 3 broadcasts
+
+        // Verify database row count is strictly 5 (NO extra rows)
+        const totalRows = await db
+            .select()
+            .from(commentary)
+            .where(eq(commentary.matchId, testMatchId));
+        expect(totalRows.length).toBe(5);
+
+        // Verify match.lastSeq in DB is still 5
+        const [matchAfterDupes] = await db.select().from(matches).where(eq(matches.id, testMatchId));
+        expect(matchAfterDupes.lastSeq).toBe(5);
+
+        // --- Verify Next New Event gets seq 6 (NO gaps burned) ---
+        const postMatchEvent = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fm_${ts}_trophy_lift`,
+            message: '[Event-based] Trophy presentation ceremony underway.',
+        };
+        const nextRes = await ingestEvent(postMatchEvent, {
+            db,
+            broadcastCommentary: mockBroadcast,
+            broadcastScoreUpdate: mockScoreBroadcast,
+        });
+
+        expect(nextRes.isDuplicate).toBe(false);
+        expect(nextRes.sequence).toBe(6); // Perfectly gapless: 1, 2, 3, 4, 5, 6!
+        expect(mockBroadcast).toHaveBeenCalledTimes(6);
+    }, 30000);
 });

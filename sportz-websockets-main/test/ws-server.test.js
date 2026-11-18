@@ -3,6 +3,7 @@ import http from 'http';
 import { WebSocket } from 'ws';
 import { attachWebSocketServer } from '../src/ws/server.js';
 import { getClientIp } from '../src/arcjet.js';
+import { getMatchReactionsKey } from '../src/redis/redis.js';
 import Redis from 'ioredis';
 
 describe('WebSocket Server Integration Tests', () => {
@@ -874,8 +875,13 @@ describe('WebSocket Server Integration Tests', () => {
                 await admin.client('kill', 'id', pubIdA);
                 await admin.client('kill', 'id', subIdA);
 
-                // Wait briefly for socket close event to register on pubA/subA
-                await new Promise((r) => setTimeout(r, 30));
+                // Wait for socket close / reconnecting event to register on pubA
+                await new Promise((resolve) => {
+                    if (pubA.status !== 'ready') return resolve();
+                    pubA.once('close', resolve);
+                    pubA.once('reconnecting', resolve);
+                    setTimeout(resolve, 150);
+                });
                 expect(pubA.status).not.toBe('ready');
 
                 // 4. Mid-run degradation: Instance A broadcasts commentary while Redis is dead
@@ -904,8 +910,12 @@ describe('WebSocket Server Integration Tests', () => {
                 expect(pubA.status).toBe('ready');
                 expect(subA.status).toBe('ready');
 
-                // Give subA a brief tick to finish channel resubscriptions
-                await new Promise((r) => setTimeout(r, 100));
+                // Give subA a brief tick to finish channel resubscriptions and pubA to flush reaction deltas
+                await new Promise((r) => setTimeout(r, 150));
+
+                // Verify reaction counters in Redis after recovery: reaction during outage synced to Redis!
+                const redisCounts = await admin.hgetall(getMatchReactionsKey(400));
+                expect(parseInt(redisCounts['🔥'] || '0', 10)).toBeGreaterThanOrEqual(1);
 
                 // 6. Restored cluster mode: Instance A broadcast reaches Client B again across Redis!
                 handlesA.broadcastCommentary(400, { text: 'Restored cluster commentary after Redis reconnected' });

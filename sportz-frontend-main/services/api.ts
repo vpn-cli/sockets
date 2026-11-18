@@ -2,7 +2,7 @@ import { API_BASE_URL } from "../constants";
 import { AiInsights, Commentary, CommentaryResponse, Match, MatchResponse } from "../types";
 
 export interface AppConfig {
-  dataSource: 'live' | 'replay' | 'simulated';
+  dataSource: 'live' | 'delayed' | 'replay' | 'simulated';
   provider: string;
   providerName: string;
   attribution: string;
