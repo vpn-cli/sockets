@@ -459,6 +459,9 @@ During multi-run benchmarking on a single laptop (2 server instances, Redis, and
    - All horizontal scaling benchmarks (load generator, 2 server instances, Redis container, and 5,000 WebSocket connections) execute simultaneously on a single developer laptop, competing for the same 8 CPU cores, RAM bandwidth, and OS TCP loopback stack.
 6. **Render Free-Tier Idle Sleep**:
    - Deployed on Render's free tier, the backend web service spins down after 15 minutes of inactivity. Initial cold-start requests incur a 30–50 second latency while the instance boots.
+7. **Arcjet Fail-Open on Protection Errors**:
+   - When Arcjet returns an `ERROR` decision (for example, due to an upstream Decide API timeout/outage, network blip, or rule validation error such as a missing `User-Agent` header), the backend intentionally **fails open** and allows the HTTP request or WebSocket upgrade through so a third-party security service disruption cannot take down live match streaming.
+   - **Trade-off & Observability**: During an Arcjet outage, rate limiting and bot protection are temporarily unenforced. Every `ERROR` decision and unexpected protection exception is logged loudly via `console.error` (with secrets redacted) and tracked in-process via `arcjetErrors` (`{ count, lastErrorAt }`) on `GET /health` for alerting.
 
 ---
 
