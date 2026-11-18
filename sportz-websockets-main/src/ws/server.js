@@ -416,7 +416,9 @@ export function attachWebSocketServer(server, {
 
         // Initialize replay queue for this socket & match so concurrent live events are held in order
         socket.replayingMatches = socket.replayingMatches || new Map();
-        socket.replayingMatches.set(matchId, []);
+        if (!socket.replayingMatches.has(matchId)) {
+            socket.replayingMatches.set(matchId, []);
+        }
 
         let replayedEvents = null;
         let isOversizedGap = false;
@@ -600,6 +602,13 @@ export function attachWebSocketServer(server, {
 
             subscribe(matchId, socket);
             socket.subscriptions.add(matchId);
+
+            if (lastSeq !== null) {
+                socket.replayingMatches = socket.replayingMatches || new Map();
+                if (!socket.replayingMatches.has(matchId)) {
+                    socket.replayingMatches.set(matchId, []);
+                }
+            }
 
             sendJson(socket, { type: 'subscribed', matchId });
 

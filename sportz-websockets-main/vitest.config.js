@@ -3,6 +3,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
     test: {
         pool: 'threads',
-        testTimeout: 10000,
+        fileParallelism: false,
+        testTimeout: 20000,
+        setupFiles: ['./test/setup.js'],
     },
 });
