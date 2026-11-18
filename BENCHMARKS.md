@@ -245,31 +245,27 @@ To verify that measurement catches delayed packets without false drops, an artif
 - **1000–1500ms**: 0
 - **1500–2000ms**: 0
 - **>2000ms (Undelivered)**: **0** out of 625,000 deliveries (**0.000%**).
-All delayed messages that missed the 400ms cutoff arrived within 639ms. Every message reached its destination within the 2.0-second collection window.
+All delayed messages that missed the 400ms cutoff arrived within max observed 639ms. Every message reached its destination within the 2.0-second collection window.
 
 ---
 
-### 6. Event-Loop Delay Measurements & ~100ms Clustering Root Cause Analysis
+### 6. Tail Latency & Step Clustering Analysis
 
-#### Observed Step Clustering
-In the multi-run distribution, delayed messages clustered strictly into ~100ms bands with no intermediate deliveries:
+#### Observed Multi-Run Latency Tail
+In the multi-run distribution, delayed deliveries (>400ms) occurred in Runs 1–3 and clustered into discrete bands:
 - **Band 1**: `[401ms – 454ms]` (4,932 deliveries)
 - **Band 2**: `[501ms – 543ms]` (2,773 deliveries)
 - **Band 3**: `[603ms – 639ms]` (741 deliveries)
 - **Empty Intervals**: Zero messages arrived in [455–500ms] or [544–602ms].
+- **Runs 4 & 5**: Recorded 0 late messages (100.0% $\le$ 400ms).
 
-#### Evidence & Root Cause
-1. **Workload Discretization (5 Rooms × 1,000 Clients)**:
-   - Sockets are grouped into 5 match rooms with 1,000 clients each (500 on Instance 1, 500 on Instance 2).
-   - In each round, reactions are fired sequentially across the 5 rooms. Instance 1 and Instance 2 dispatch deliveries in 5 distinct room waves of 500 local sockets per instance.
-2. **Single-Threaded V8 Deserialization Time (~100ms per 1,000 Sockets)**:
-   - On the client benchmark process, 5,000 sockets run on a single Node.js event loop.
-   - Processing, parsing (`JSON.parse`), and allocating 1,000 incoming WebSocket JSON messages takes ~80–100ms of V8 event-loop execution.
-   - Rooms 1 through 4 are drained within 0–350ms. Room 5 sits in the OS socket buffer while prior rooms are processed, landing at **401–454ms** (exactly ~454–1,225 clients, an integral room slice).
-3. **V8 GC Pauses & Lag Spikes**:
-   - `perf_hooks.monitorEventLoopDelay` measurements demonstrate that under cumulative heap allocation, minor V8 GC scavenges and socket buffer flushes pause the event loop by ~100ms.
-   - A single 100ms lag spike shifts trailing room deliveries by +100ms into **501–543ms**. A second 100ms pause shifts the tail into **603–639ms**.
-   - Because clients exist only in discrete 1,000-socket rooms, no messages exist between room batches.
+#### Analysis: Single Laptop Tail Latency
+- **Even Instance Split**: Late deliveries were split symmetrically between backend instances:
+  - Instance 1: 4,141 deliveries (49.03%)
+  - Instance 2: 4,305 deliveries (50.97%)
+  This even distribution demonstrates that neither backend instance stalled independently; rather, the bottleneck points directly at the single load generator process multiplexing 5,000 inbound WebSocket connections on the same host machine.
+- **Cause Unconfirmed**: The late tail reached up to ~640ms (max observed 639ms) in some runs on a single laptop. While hypotheses including single-thread JSON parsing batches and V8 garbage collection scavenges on the load generator process were considered, the exact cause remains unconfirmed (prior theories attributing the delay to a room-by-room fan-out wave contradict the measured median p50 ≈ 26ms on the exact same workload and cannot explain why Runs 4–5 observed zero late deliveries).
+- **Event-Loop Delay Monitoring**: The event loop histogram was actively enabled during benchmarks using `perf_hooks.monitorEventLoopDelay({ resolution: 10 })` with `histogram.enable()`. The server instances reported `0.0ms` event loop delay throughout the runs. This `0.0ms` reading is **valid**: the backend server processes perform minimal CPU operations during broadcast (pushing pre-serialized strings/buffers to active sockets without heavy per-socket formatting), keeping libuv event loop latency in the sub-millisecond range (<0.5ms), which rounds to `0.0ms` when formatted with `.toFixed(1)`.
 
 #### Load Generator Benchmark Flags
 Every benchmark run executes with identical V8 flags:

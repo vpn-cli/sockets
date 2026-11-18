@@ -401,30 +401,20 @@ node --max-old-space-size=4096 --expose-gc sportz-websockets-main/scripts/measur
 - **0 of 625,000 Lost Within 2s**: Exactly **0.000% dropped messages**. Every single message reached its target socket within the 2.0-second collection window.
 - **Overall SLA Compliance**: **98.649% of all deliveries arrived within 400ms**.
 - **Per-Run Range**: From **95.543%** (worst-case run under cumulative V8 heap churn) to **100.000%** (Runs 4 & 5 with fresh garbage collection).
-- **Tail Latency**: The tail is strictly bounded at **639ms** (zero deliveries exceeded 639ms; zero deliveries in the 800–1000ms, 1000–1500ms, 1500–2000ms, or >2000ms buckets).
+- **Tail Latency**: Max observed **639ms** (zero deliveries in the 800–1000ms, 1000–1500ms, 1500–2000ms, or >2000ms buckets).
 
 ---
 
-### Root Cause Analysis: Why Late Messages Cluster in ~100ms Steps
+### Tail Latency Analysis: Late Delivery Clustering
 
-During load testing, late deliveries cluster into discrete ~100ms bands (`[401–454ms]`, `[501–543ms]`, `[603–639ms]`) with completely empty intervals between them. The underlying mechanics were investigated by tracking event loop delays (`perf_hooks.monitorEventLoopDelay`) across both the load generator and server instances:
+During multi-run benchmarking on a single laptop (2 server instances, Redis, and 5,000 load-generating client sockets sharing one CPU), late deliveries (>400ms) clustered into steps (`[401–454ms]`, `[501–543ms]`, `[603–639ms]`) in Runs 1–3, while Runs 4 and 5 had zero late deliveries:
 
-1. **Room-by-Room Fan-Out Wave Discretization**:
-   - The workload partitions 5,000 clients across **5 match rooms (1,000 clients per room: 500 on Instance 1, 500 on Instance 2)**.
-   - When broadcast rounds fire, reactions are published room-by-room. The 2 server instances dispatch messages in **5 sequential waves of 500 sockets per instance** (1,000 sockets total per room wave).
-2. **Single-Threaded V8 Processing Cadence**:
-   - On the client side, a single Node.js process hosts all 5,000 client sockets.
-   - Parsing, deserializing (`JSON.parse`), and appending 1,000 JSON payloads on a single V8 thread consumes **~80–100ms of CPU time**.
-   - As a result:
-     - Wave 1 (Room 1, 1,000 sockets): Processed in 0–100ms.
-     - Wave 2 (Room 2, 1,000 sockets): Processed in 100–200ms.
-     - Wave 3 (Room 3, 1,000 sockets): Processed in 200–300ms.
-     - Wave 4 (Room 4, 1,000 sockets): Processed in 300–400ms.
-     - Wave 5 (Room 5, 1,000 sockets): Queued in the OS socket buffer while the event loop drains prior waves, landing at **401–454ms** (Cluster 1: exactly 454–1,225 clients, corresponding to an integral room batch).
-3. **Event-Loop Lag Spikes & GC Halts**:
-   - In back-to-back runs without interim GC, V8 minor GC scavenges and kernel TCP socket buffer flushes introduce periodic **~100ms event-loop pauses**.
-   - When a 100ms lag pause occurs during socket draining, subsequent room waves are shifted by exactly +100ms into **501–543ms** (Cluster 2) and an additional 100ms into **603–639ms** (Cluster 3).
-   - Because clients belong to discrete 1,000-socket rooms, no messages exist in the intervals between room batches, creating the observed step-function distribution.
+- **Even Instance Distribution**: Across all runs, late deliveries split almost symmetrically across both backend nodes:
+  - **Instance 1**: 4,141 late deliveries (49.03%)
+  - **Instance 2**: 4,305 late deliveries (50.97%)
+  This even 50/50 split points directly at the load generator (a single client process receiving messages from both instances) rather than a bottleneck on either individual server instance.
+- **Cause Unconfirmed**: The late tail reached up to ~640ms (max observed 639ms) in some runs on a single laptop. While hypotheses including single-thread JSON parsing batches and V8 garbage collection scavenges on the load generator process were considered, the exact cause remains unconfirmed (prior theories based on room-by-room wave fan-out contradict the measured median p50 ≈ 26ms on the exact same workload and cannot account for Runs 4–5 recording zero late messages).
+- **Event-Loop Delay Instrumentation**: Event loop monitoring via `perf_hooks.monitorEventLoopDelay({ resolution: 10 })` was actively enabled on the servers and load generator using `histogram.enable()`. The server instances reported `0.0ms` event-loop lag throughout the benchmark. This reading is **valid**: the server processes perform minimal CPU overhead during broadcasts (streaming pre-serialized buffers directly to active sockets), keeping libuv event-loop delay in the sub-millisecond range (<0.5ms), which rounds to `0.0ms` when formatted with `.toFixed(1)`. The latency tail was introduced on the client ingestion side under heavy socket multiplexing.
 
 ---
 
