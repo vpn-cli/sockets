@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './db/bootstrap-env.js';
 
 try {
     const { default: AgentAPI } = await import("apminsight");
