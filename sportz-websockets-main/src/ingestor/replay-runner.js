@@ -16,6 +16,137 @@ export function parseSpeedFactor(speedStr = '1x') {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1.0;
 }
 
+/**
+ * Replays finished matches already stored in Postgres (the commentary table)
+ * for zero-dependency replay in cloud environments like Render.
+ */
+export async function runReplayFromPostgres({
+    db = null,
+    matchId = null,
+    speed = process.env.REPLAY_SPEED || '1x',
+    apiUrl = process.env.API_URL || null,
+    broadcastCommentary = null,
+    broadcastScoreUpdate = null,
+    onEventIngested = null,
+    loop = false,
+} = {}) {
+    const speedFactor = parseSpeedFactor(speed);
+    console.log(`[Postgres Replay] Starting replay from finished matches in DB at ${speedFactor}x speed...`);
+
+    let database = db;
+    if (!database && process.env.DATABASE_URL) {
+        const { db: defaultDb } = await import('../db/db.js');
+        database = defaultDb;
+    }
+
+    if (!database) {
+        throw new Error('Database instance or DATABASE_URL is required for Postgres replay');
+    }
+
+    const { matches, commentary } = await import('../db/schema.js');
+    const { eq, asc, desc } = await import('drizzle-orm');
+
+    // 1. Find finished match to replay
+    let targetMatchId = matchId;
+    if (!targetMatchId) {
+        const finished = await database
+            .select()
+            .from(matches)
+            .where(eq(matches.status, 'finished'))
+            .orderBy(desc(matches.createdAt))
+            .limit(1);
+
+        if (finished.length > 0) {
+            targetMatchId = finished[0].id;
+        } else {
+            // Fallback: pick any match with commentary
+            const anyMatch = await database
+                .select({ matchId: commentary.matchId })
+                .from(commentary)
+                .orderBy(desc(commentary.id))
+                .limit(1);
+            if (anyMatch.length > 0) {
+                targetMatchId = anyMatch[0].matchId;
+            }
+        }
+    }
+
+    if (!targetMatchId) {
+        console.warn(`[Postgres Replay] No matches or commentary found in database to replay.`);
+        return { totalIngested: 0, totalDuplicates: 0, source: 'postgres' };
+    }
+
+    // 2. Fetch all commentary rows for this match
+    const rows = await database
+        .select()
+        .from(commentary)
+        .where(eq(commentary.matchId, targetMatchId))
+        .orderBy(asc(commentary.sequence), asc(commentary.createdAt));
+
+    console.log(`[Postgres Replay] Loaded ${rows.length} commentary event(s) for match ${targetMatchId} from Postgres.`);
+
+    let totalIngested = 0;
+
+    do {
+        let prevTimestamp = null;
+        for (const row of rows) {
+            const currentTimestamp = row.createdAt ? new Date(row.createdAt).getTime() : Date.now();
+            if (prevTimestamp !== null) {
+                const deltaMs = Math.max(0, currentTimestamp - prevTimestamp);
+                const delayMs = Math.min(2000, Math.max(20, Math.floor(deltaMs / speedFactor)));
+                await new Promise((r) => setTimeout(r, delayMs));
+            } else {
+                await new Promise((r) => setTimeout(r, Math.max(10, Math.floor(500 / speedFactor))));
+            }
+            prevTimestamp = currentTimestamp;
+
+            const payload = {
+                id: row.id,
+                matchId: row.matchId,
+                minute: row.minute,
+                sequence: row.sequence,
+                period: row.period,
+                eventType: row.eventType,
+                actor: row.actor,
+                team: row.team,
+                message: row.message,
+                provider: row.provider,
+                providerEventId: row.providerEventId,
+                metadata: row.metadata,
+                tags: row.tags,
+                createdAt: row.createdAt,
+            };
+
+            if (typeof broadcastCommentary === 'function') {
+                broadcastCommentary(row.matchId, payload);
+            }
+            const scoreObj = row.metadata?.score || (typeof row.metadata?.homeScore === 'number' ? row.metadata : null);
+            if (scoreObj && typeof broadcastScoreUpdate === 'function') {
+                broadcastScoreUpdate(row.matchId, {
+                    homeScore: scoreObj.homeScore ?? 0,
+                    awayScore: scoreObj.awayScore ?? 0,
+                    seq: row.sequence,
+                });
+            }
+            if (apiUrl) {
+                try {
+                    await fetch(`${apiUrl}/matches/${row.matchId}/commentary`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                } catch {}
+            }
+
+            totalIngested++;
+            onEventIngested?.({ commentary: payload });
+        }
+    } while (loop);
+
+    console.log(`[Postgres Replay] Completed replaying ${totalIngested} event(s) from Postgres commentary table.`);
+    return { totalIngested, totalDuplicates: 0, source: 'postgres' };
+}
+
 export async function runReplay({
     recordingPath = null,
     speed = process.env.REPLAY_SPEED || '1x',
@@ -25,9 +156,23 @@ export async function runReplay({
     broadcastScoreUpdate = null,
     onEventIngested = null,
     loop = false,
+    usePostgres = Boolean(process.env.DATABASE_URL && !recordingPath),
 } = {}) {
+    // If DATABASE_URL is set and no file path was explicitly requested, replay directly from Postgres
+    if (usePostgres) {
+        return await runReplayFromPostgres({
+            db,
+            speed,
+            apiUrl,
+            broadcastCommentary,
+            broadcastScoreUpdate,
+            onEventIngested,
+            loop,
+        });
+    }
+
     const speedFactor = parseSpeedFactor(speed);
-    console.log(`[Replay Runner] Starting replay at ${speedFactor}x speed...`);
+    console.log(`[Replay Runner] Starting file-based replay at ${speedFactor}x speed...`);
 
     // Determine recording file
     let filePath = recordingPath;

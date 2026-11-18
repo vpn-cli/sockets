@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { FeedRecorder } from '../src/ingestor/recorder.js';
-import { parseSpeedFactor, runReplay } from '../src/ingestor/replay-runner.js';
+import { parseSpeedFactor, runReplay, runReplayFromPostgres } from '../src/ingestor/replay-runner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,6 +76,61 @@ describe('FeedRecorder & ReplayRunner', () => {
             const firstEvent = ingestedEvents[0].commentary;
             expect(firstEvent.provider).toBe('football-data.org');
             expect(firstEvent.message).toContain('[Event-based]');
+        });
+
+        it('replays finished matches directly from Postgres commentary table without needing file recordings', async () => {
+            // Mock Postgres DB returning a finished match and its stored commentary rows
+            const mockRows = [
+                {
+                    id: 1,
+                    matchId: 777,
+                    sequence: 1,
+                    minute: 10,
+                    eventType: 'score_update',
+                    message: '[Event-based] GOAL! 1-0',
+                    metadata: { score: { homeScore: 1, awayScore: 0 } },
+                    createdAt: new Date('2026-11-18T10:00:00Z'),
+                },
+                {
+                    id: 2,
+                    matchId: 777,
+                    sequence: 2,
+                    minute: 45,
+                    eventType: 'status_change',
+                    message: '[Event-based] Half-time',
+                    createdAt: new Date('2026-11-18T10:00:10Z'),
+                },
+            ];
+
+            const mockDb = {
+                select: () => ({
+                    from: () => ({
+                        where: () => ({
+                            orderBy: () => ({
+                                limit: async () => [{ id: 777, status: 'finished' }],
+                            }),
+                            orderBy: () => mockRows,
+                        }),
+                    }),
+                }),
+            };
+
+            const broadcastComm = vi.fn();
+            const broadcastScore = vi.fn();
+
+            const res = await runReplayFromPostgres({
+                db: mockDb,
+                matchId: 777,
+                speed: '100x',
+                broadcastCommentary: broadcastComm,
+                broadcastScoreUpdate: broadcastScore,
+            });
+
+            expect(res.source).toBe('postgres');
+            expect(res.totalIngested).toBe(2);
+            expect(broadcastComm).toHaveBeenCalledTimes(2);
+            expect(broadcastScore).toHaveBeenCalledTimes(1);
+            expect(broadcastScore).toHaveBeenCalledWith(777, { homeScore: 1, awayScore: 0, seq: 1 });
         });
     });
 });

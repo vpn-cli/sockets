@@ -9,9 +9,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
-    const dataSource = (process.env.DATA_SOURCE || 'simulated').toLowerCase();
+    const rawDataSource = (process.env.DATA_SOURCE || 'simulated').toLowerCase();
+    const isAdminReplayAllowed = process.env.ADMIN_ENABLE_REPLAY === 'true' || 
+                                 process.env.ADMIN_ENABLE_REPLAY === '1' || 
+                                 process.env.ALLOW_ADMIN_DATA_SOURCE === 'true' ||
+                                 process.env.ALLOW_ADMIN_DATA_SOURCE === '1';
+
+    let dataSource = rawDataSource;
+    if (dataSource === 'replay' && !isAdminReplayAllowed) {
+        console.warn(`⚠️ [Ingestor Security] Global data-source switch to 'replay' is restricted to admin authorization.`);
+        console.warn(`🔒 Set ADMIN_ENABLE_REPLAY=true in your environment to activate REPLAY mode. Defaulting to SIMULATED mode.`);
+        dataSource = 'simulated';
+    }
+
     console.log(`=======================================================`);
-    console.log(`🚀 [Ingestor Service] DATA_SOURCE = ${dataSource.toUpperCase()}`);
+    console.log(`🚀 [Ingestor Service] DATA_SOURCE = ${dataSource.toUpperCase()} (Requested: ${rawDataSource.toUpperCase()})`);
     console.log(`=======================================================`);
 
     if (dataSource === 'live') {
