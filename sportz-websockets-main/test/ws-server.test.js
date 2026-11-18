@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import http from 'http';
 import { WebSocket } from 'ws';
-import { attachWebSocketServer } from '../src/ws/server.js';
+import { attachWebSocketServer, syncReactionDeltas } from '../src/ws/server.js';
 import { getClientIp } from '../src/arcjet.js';
 import { getMatchReactionsKey } from '../src/redis/redis.js';
 import Redis from 'ioredis';
@@ -651,14 +651,14 @@ describe('WebSocket Server Integration Tests', () => {
 
             handlesA = attachWebSocketServer(serverA, {
                 heartbeatMs: 60000,
-                knownMatchIds: [100, 200, 300, 400],
+                knownMatchIds: [100, 200, 300, 400, 405],
                 redisPub: pubA,
                 redisSub: subA,
             });
 
             handlesB = attachWebSocketServer(serverB, {
                 heartbeatMs: 60000,
-                knownMatchIds: [100, 200, 300, 400],
+                knownMatchIds: [100, 200, 300, 400, 405],
                 redisPub: pubB,
                 redisSub: subB,
             });
@@ -927,6 +927,85 @@ describe('WebSocket Server Integration Tests', () => {
                 expect(restoredB.data.text).toBe('Restored cluster commentary after Redis reconnected');
             } finally {
                 console.error = originalConsoleError;
+                await admin.quit();
+            }
+        });
+
+        it('Phase 2 Correctness 7: Reaction sync deletes each delta only after HINCRBY succeeds; Redis dropping mid-sync prevents double counting, and sends clients corrected totals', async () => {
+            const admin = new Redis(REDIS_URL);
+            const testMatchId = 405;
+            const redisKey = getMatchReactionsKey(testMatchId);
+            await admin.del(redisKey);
+
+            try {
+                // Pre-populate Redis with 10 existing fires
+                await admin.hset(redisKey, '🔥', '10');
+
+                // Buffer local deltas while offline: 🔥: 2, ⚽: 3
+                const localDeltas = new Map();
+                localDeltas.set(testMatchId, { '🔥': 2, '⚽': 3 });
+
+                const matchReactions = new Map();
+                let notifiedTotals = null;
+
+                // Simulate Redis client where first HINCRBY succeeds, but second throws (mid-sync drop)
+                let callCount = 0;
+                const failingPub = {
+                    hincrby: async (key, emoji, count) => {
+                        callCount++;
+                        if (callCount === 1) {
+                            // First HINCRBY succeeds against real Redis
+                            return await admin.hincrby(key, emoji, count);
+                        }
+                        // Second HINCRBY fails mid-sync (simulated network/Redis drop)
+                        throw new Error('Redis socket closed mid-sync');
+                    },
+                    status: 'ready',
+                };
+
+                // Run Pass 1: Mid-sync failure
+                const pass1Result = await syncReactionDeltas({
+                    localReactionDeltas: localDeltas,
+                    activePub: failingPub,
+                    matchReactions,
+                    onCorrectedTotals: (id, totals) => { notifiedTotals = totals; },
+                });
+
+                expect(pass1Result.aborted).toBe(true);
+
+                // Verify 🔥 was incremented in Redis (10 + 2 = 12), and its delta was DELETED from localDeltas!
+                const midRedis = await admin.hgetall(redisKey);
+                expect(parseInt(midRedis['🔥'] || '0', 10)).toBe(12);
+
+                const matchDeltasAfterPass1 = localDeltas.get(testMatchId);
+                expect(matchDeltasAfterPass1['🔥']).toBeUndefined(); // DELETED!
+                expect(matchDeltasAfterPass1['⚽']).toBe(3); // KEPT for retry!
+
+                // Run Pass 2: Redis reconnects (healthy pub client)
+                const pass2Result = await syncReactionDeltas({
+                    localReactionDeltas: localDeltas,
+                    activePub: admin,
+                    matchReactions,
+                    onCorrectedTotals: (id, totals) => { notifiedTotals = totals; },
+                });
+
+                expect(pass2Result.aborted).toBe(false);
+
+                // Verify NO DOUBLE COUNTING: 🔥 is STILL 12, and ⚽ was synced to 3!
+                const finalRedis = await admin.hgetall(redisKey);
+                expect(parseInt(finalRedis['🔥'] || '0', 10)).toBe(12); // Exactly 12, NOT 14!
+                expect(parseInt(finalRedis['⚽'] || '0', 10)).toBe(3);
+
+                // Verify local delta map is now completely drained and deleted
+                expect(localDeltas.has(testMatchId)).toBe(false);
+
+                // Verify clients were notified of the corrected totals
+                expect(notifiedTotals).toBeDefined();
+                expect(notifiedTotals['🔥']).toBe(12);
+                expect(notifiedTotals['⚽']).toBe(3);
+                expect(matchReactions.get(testMatchId)['🔥']).toBe(12);
+            } finally {
+                await admin.del(redisKey);
                 await admin.quit();
             }
         });

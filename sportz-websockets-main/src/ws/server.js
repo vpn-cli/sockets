@@ -63,6 +63,63 @@ export function resetCheckMatchExistsQueryCount() {
     checkMatchExistsQueryCount = 0;
 }
 
+export async function syncReactionDeltas({
+    localReactionDeltas,
+    activePub,
+    matchReactions = null,
+    onCorrectedTotals = null,
+}) {
+    if (!localReactionDeltas || localReactionDeltas.size === 0) return { syncedMatches: [], aborted: false };
+    console.log(`🔄 [Redis Pub] Synchronizing ${localReactionDeltas.size} match reaction delta(s) to Redis...`);
+    const syncedMatches = new Set();
+    let syncAborted = false;
+
+    for (const [matchId, deltas] of Array.from(localReactionDeltas.entries())) {
+        if (syncAborted) break;
+        const key = getMatchReactionsKey(matchId);
+        for (const emoji of Object.keys(deltas)) {
+            const count = deltas[emoji];
+            if (count > 0) {
+                try {
+                    await activePub.hincrby(key, emoji, count);
+                    // Delete delta ONLY after its own HINCRBY succeeds
+                    deltas[emoji] -= count;
+                    if (deltas[emoji] <= 0) {
+                        delete deltas[emoji];
+                    }
+                    syncedMatches.add(matchId);
+                } catch (err) {
+                    console.error(`⚠️ [Reaction Sync] HINCRBY failed mid-sync for match ${matchId} emoji ${emoji}: ${err.message}`);
+                    syncAborted = true;
+                    break;
+                }
+            }
+        }
+        if (Object.keys(deltas).length === 0) {
+            localReactionDeltas.delete(matchId);
+        }
+    }
+
+    // After sync, fetch authoritative totals from Redis and send clients the corrected totals
+    for (const matchId of syncedMatches) {
+        try {
+            const corrected = await fetchReactionCountsFromRedis(matchId, activePub);
+            if (corrected) {
+                if (matchReactions) {
+                    matchReactions.set(matchId, { ...corrected });
+                }
+                if (typeof onCorrectedTotals === 'function') {
+                    onCorrectedTotals(matchId, corrected);
+                }
+            }
+        } catch (err) {
+            console.error(`⚠️ [Reaction Sync] Failed to fetch/send corrected reaction counts for match ${matchId}: ${err.message}`);
+        }
+    }
+
+    return { syncedMatches: Array.from(syncedMatches), aborted: syncAborted };
+}
+
 export function attachWebSocketServer(server, {
     heartbeatMs = 30000,
     maxSubscriptionsPerSocket = 50,
@@ -148,18 +205,18 @@ export function attachWebSocketServer(server, {
 
     if (activePub) {
         activePub.on('ready', async () => {
-            if (localReactionDeltas.size > 0) {
-                console.log(`🔄 [Redis Pub] Synchronizing ${localReactionDeltas.size} match reaction delta(s) to Redis...`);
-                for (const [matchId, deltas] of localReactionDeltas.entries()) {
-                    const key = getMatchReactionsKey(matchId);
-                    for (const [emoji, count] of Object.entries(deltas)) {
-                        if (count > 0) {
-                            await activePub.hincrby(key, emoji, count).catch(() => {});
-                        }
-                    }
-                }
-                localReactionDeltas.clear();
-            }
+            await syncReactionDeltas({
+                localReactionDeltas,
+                activePub,
+                matchReactions,
+                onCorrectedTotals: (matchId, corrected) => {
+                    localBroadcastToMatch(matchId, {
+                        type: 'reaction_snapshot',
+                        matchId,
+                        counts: { ...corrected },
+                    });
+                },
+            });
         });
     }
 
