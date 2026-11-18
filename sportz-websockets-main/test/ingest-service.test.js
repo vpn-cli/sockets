@@ -429,4 +429,108 @@ describe('Idempotent Ingestion & Sequence Assignment Tests', () => {
         // And score broadcast was triggered for the correction
         expect(mockScoreBroadcast).toHaveBeenLastCalledWith(testMatchId, { homeScore: 2, awayScore: 0, seq: 1 });
     });
+
+    it('same score with a changed lastUpdated across 3 polls -> 0 new events, 0 broadcasts', async () => {
+        const mockCommentaryBroadcast = vi.fn();
+        const mockScoreBroadcast = vi.fn();
+
+        // 1. Establish initial match state with score 1-0
+        const initialGoalEvent = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `fd_m${testMatchId}_score_1_0_initial`,
+            eventType: 'score_update',
+            type: 'score_update',
+            message: 'First goal: 1-0',
+            score: { homeScore: 1, awayScore: 0 },
+            status: 'live',
+        };
+        const initialRes = await ingestEvent(initialGoalEvent, {
+            db,
+            broadcastCommentary: mockCommentaryBroadcast,
+            broadcastScoreUpdate: mockScoreBroadcast,
+        });
+        expect(initialRes.isDuplicate).toBe(false);
+        expect(initialRes.sequence).toBe(1);
+        expect(mockCommentaryBroadcast).toHaveBeenCalledTimes(1);
+        expect(mockScoreBroadcast).toHaveBeenCalledTimes(1);
+
+        // Reset broadcast spy counters before the 3 polls
+        mockCommentaryBroadcast.mockClear();
+        mockScoreBroadcast.mockClear();
+
+        // 2. Poll 1: Same score (1-0), updated lastUpdated timestamp
+        const poll1Event = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `football-data.org_m${testMatchId}_score_1_0_2026-11-18T20:01:00Z`,
+            eventType: 'score_update',
+            type: 'score_update',
+            message: '[Event-based] SCORE UPDATE: Home 1 - 0 Away.',
+            score: { homeScore: 1, awayScore: 0 },
+            status: 'live',
+            metadata: { lastUpdated: '2026-11-18T20:01:00Z' },
+        };
+        const res1 = await ingestEvent(poll1Event, {
+            db,
+            broadcastCommentary: mockCommentaryBroadcast,
+            broadcastScoreUpdate: mockScoreBroadcast,
+        });
+        expect(res1.isDuplicate).toBe(true);
+
+        // 3. Poll 2: Same score (1-0), second changed lastUpdated timestamp
+        const poll2Event = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `football-data.org_m${testMatchId}_score_1_0_2026-11-18T20:02:00Z`,
+            eventType: 'score_update',
+            type: 'score_update',
+            message: '[Event-based] SCORE UPDATE: Home 1 - 0 Away.',
+            score: { homeScore: 1, awayScore: 0 },
+            status: 'live',
+            metadata: { lastUpdated: '2026-11-18T20:02:00Z' },
+        };
+        const res2 = await ingestEvent(poll2Event, {
+            db,
+            broadcastCommentary: mockCommentaryBroadcast,
+            broadcastScoreUpdate: mockScoreBroadcast,
+        });
+        expect(res2.isDuplicate).toBe(true);
+
+        // 4. Poll 3: Same score (1-0), third changed lastUpdated timestamp
+        const poll3Event = {
+            matchId: testMatchId,
+            provider: 'football-data.org',
+            providerEventId: `football-data.org_m${testMatchId}_score_1_0_2026-11-18T20:03:00Z`,
+            eventType: 'score_update',
+            type: 'score_update',
+            message: '[Event-based] SCORE UPDATE: Home 1 - 0 Away.',
+            score: { homeScore: 1, awayScore: 0 },
+            status: 'live',
+            metadata: { lastUpdated: '2026-11-18T20:03:00Z' },
+        };
+        const res3 = await ingestEvent(poll3Event, {
+            db,
+            broadcastCommentary: mockCommentaryBroadcast,
+            broadcastScoreUpdate: mockScoreBroadcast,
+        });
+        expect(res3.isDuplicate).toBe(true);
+
+        // 5. Verify: exactly 0 new events, 0 broadcasts across all 3 polls
+        expect(mockCommentaryBroadcast).toHaveBeenCalledTimes(0);
+        expect(mockScoreBroadcast).toHaveBeenCalledTimes(0);
+
+        // Verify commentary row count in DB remained at 1 (from initial ingest)
+        const commentaryRows = await db
+            .select()
+            .from(commentary)
+            .where(eq(commentary.matchId, testMatchId));
+        expect(commentaryRows.length).toBe(1);
+
+        // Verify match lastSeq remained at 1
+        const [matchInDb] = await db.select().from(matches).where(eq(matches.id, testMatchId));
+        expect(matchInDb.lastSeq).toBe(1);
+        expect(matchInDb.homeScore).toBe(1);
+        expect(matchInDb.awayScore).toBe(0);
+    });
 });

@@ -163,5 +163,19 @@ describe('Provider Adapter & Rate Budget Tests', () => {
             expect(scoreEv3.providerEventId).toBe('football-data.org_m501_score_1_1_to_1_0_2026-11-18T19:37:00Z');
             expect(scoreEv3.providerEventId).not.toBe(scoreEv1.providerEventId);
         });
+
+        it('does not create score event if current stored score is identical despite changed lastUpdated', () => {
+            const state = {
+                id: 502,
+                lastUpdated: '2026-11-18T20:00:00Z',
+                status: 'IN_PLAY',
+                score: { fullTime: { home: 2, away: 1 } },
+            };
+
+            // When current stored score is already 2-1:
+            const events = mapProviderMatchToEvents(state, 502, { homeScore: 2, awayScore: 1, status: 'live' });
+            const scoreEv = events.find((e) => e.type === 'score_update');
+            expect(scoreEv).toBeUndefined(); // 0 score events!
+        });
     });
 });

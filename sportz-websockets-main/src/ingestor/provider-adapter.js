@@ -82,12 +82,24 @@ export async function fetchLiveMatches({
     };
 }
 
+export function mapToMatchStatus(status) {
+    if (!status) return null;
+    const s = String(status).toLowerCase();
+    if (s === 'in_play' || s === 'paused' || s === 'live') return 'live';
+    if (s === 'finished' || s === 'awarded') return 'finished';
+    if (s === 'scheduled' || s === 'timed') return 'scheduled';
+    return null;
+}
+
 /**
  * Maps a provider match payload into normalized events derived STRICTLY from score and status changes.
  * (Free tier data does not include real-time player/booking events).
  * All commentary text is event-templated and explicitly labeled as event-based (not human commentary).
+ *
+ * Score events are only created when the score differs from the current stored score.
+ * lastUpdated only makes the providerEventId unique on legitimate changes (such as VAR rollbacks).
  */
-export function mapProviderMatchToEvents(providerMatch, localMatchId = null) {
+export function mapProviderMatchToEvents(providerMatch, localMatchId = null, currentStored = null) {
     if (!providerMatch) return [];
 
     const targetMatchId = localMatchId !== null ? localMatchId : providerMatch.id;
@@ -104,37 +116,51 @@ export function mapProviderMatchToEvents(providerMatch, localMatchId = null) {
 
     const events = [];
 
-    // 1. Status event
-    const providerStatusEventId = `${PROVIDER_NAME}_m${providerMatch.id}_status_${status}${lastUpdatedPart}`;
-    events.push({
-        provider: PROVIDER_NAME,
-        providerEventId: providerStatusEventId,
-        matchId: targetMatchId,
-        type: 'status_change',
-        eventType: 'status_change',
-        status,
-        minute: providerMatch.minute ?? null,
-        period: status === 'PAUSED' ? 'half-time' : (status === 'IN_PLAY' ? 'live' : status.toLowerCase()),
-        actor: null,
-        team: null,
-        message: `[Event-based] MATCH STATUS: ${homeTeam} vs ${awayTeam} is now ${status}. Current score: ${homeScore} - ${awayScore}.`,
-        score: {
-            homeScore,
-            awayScore,
-        },
-        metadata: {
-            isEventBased: true,
-            provider: PROVIDER_NAME,
-            providerMatchId: providerMatch.id,
-            status,
-            lastUpdated: providerMatch.lastUpdated || null,
-        },
-        tags: ['status', status.toLowerCase(), 'automated-event'],
-    });
+    // 1. Status event: only created if status differs from current stored status (if provided)
+    let statusDiffers = true;
+    if (currentStored && currentStored.status) {
+        const mappedCurrent = mapToMatchStatus(currentStored.status) || currentStored.status.toLowerCase();
+        const mappedNew = mapToMatchStatus(status) || status.toLowerCase();
+        statusDiffers = mappedCurrent !== mappedNew;
+    }
 
-    // 2. Score event (derived when scores exist, on score corrections/rollbacks, or explicit score updates)
+    if (statusDiffers) {
+        const providerStatusEventId = `${PROVIDER_NAME}_m${providerMatch.id}_status_${status}${lastUpdatedPart}`;
+        events.push({
+            provider: PROVIDER_NAME,
+            providerEventId: providerStatusEventId,
+            matchId: targetMatchId,
+            type: 'status_change',
+            eventType: 'status_change',
+            status,
+            minute: providerMatch.minute ?? null,
+            period: status === 'PAUSED' ? 'half-time' : (status === 'IN_PLAY' ? 'live' : status.toLowerCase()),
+            actor: null,
+            team: null,
+            message: `[Event-based] MATCH STATUS: ${homeTeam} vs ${awayTeam} is now ${status}. Current score: ${homeScore} - ${awayScore}.`,
+            score: {
+                homeScore,
+                awayScore,
+            },
+            metadata: {
+                isEventBased: true,
+                provider: PROVIDER_NAME,
+                providerMatchId: providerMatch.id,
+                status,
+                lastUpdated: providerMatch.lastUpdated || null,
+            },
+            tags: ['status', status.toLowerCase(), 'automated-event'],
+        });
+    }
+
+    // 2. Score event: ONLY created when score differs from current stored score (if provided)
+    let scoreDiffers = true;
+    if (currentStored && typeof currentStored.homeScore === 'number' && typeof currentStored.awayScore === 'number') {
+        scoreDiffers = (homeScore !== currentStored.homeScore || awayScore !== currentStored.awayScore);
+    }
+
     const isScoreRelevant = homeScore > 0 || awayScore > 0 || providerMatch.isScoreUpdate || providerMatch.scoreRollback || providerMatch.fromScore !== undefined;
-    if (isScoreRelevant) {
+    if (isScoreRelevant && scoreDiffers) {
         const providerScoreEventId = `${PROVIDER_NAME}_m${providerMatch.id}_score_${transitionPart}${homeScore}_${awayScore}${lastUpdatedPart}`;
         events.push({
             provider: PROVIDER_NAME,

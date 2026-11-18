@@ -77,6 +77,18 @@ export async function ingestEvent(event, {
             (matchRow.homeScore !== event.score.homeScore || matchRow.awayScore !== event.score.awayScore)
         );
 
+        const isScoreEvent = event.eventType === 'score_update' || event.type === 'score_update';
+        // Only create a score event when the score differs from the current stored score;
+        // lastUpdated only makes the ID unique on real changes.
+        if (isScoreEvent && !scoreChanged) {
+            return {
+                isDuplicate: true,
+                sequence: matchRow.lastSeq,
+                match: matchRow,
+                scoreChanged: false,
+            };
+        }
+
         // 2. Try inserting commentary with candidateSeq
         const insertValues = {
             matchId: event.matchId,
