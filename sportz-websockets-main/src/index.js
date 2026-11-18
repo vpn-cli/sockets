@@ -36,11 +36,13 @@ app.get('/', (req, res) => {
 
 app.get('/config', (req, res) => {
     const rawDataSource = (process.env.DATA_SOURCE || 'simulated').toLowerCase();
-    const dataSource = rawDataSource;
+    // Football-data.org's free tier provides delayed scores per its pricing/policy.
+    const isDelayed = rawDataSource === 'live' || rawDataSource === 'delayed';
+    const dataSource = isDelayed ? 'delayed' : rawDataSource;
     res.json({
         dataSource,
         rawDataSource,
-        isDelayed: false,
+        isDelayed,
         provider: 'football-data.org',
         providerName: 'Football-Data.org',
         attribution: 'Football data provided by football-data.org',

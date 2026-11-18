@@ -227,12 +227,12 @@ const App: React.FC = () => {
                 <span className="text-[10px] font-mono font-bold bg-white text-black border border-black px-2 py-0.5 rounded-full shadow-hard-sm">
                   v2.0 Real-Time + AI
                 </span>
-                {config.dataSource === 'delayed' && (
+                {(config.dataSource === 'delayed' || config.isDelayed) && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-mono font-black bg-amber-500 text-black border border-black px-2 py-0.5 rounded-full shadow-hard-sm">
                     <span className="w-1.5 h-1.5 rounded-full bg-black"></span>DELAYED
                   </span>
                 )}
-                {config.dataSource === 'live' && (
+                {config.dataSource === 'live' && !config.isDelayed && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-mono font-black bg-emerald-600 text-white border border-black px-2 py-0.5 rounded-full shadow-hard-sm animate-pulse">
                     <span className="w-1.5 h-1.5 rounded-full bg-white"></span>LIVE
                   </span>
