@@ -1,0 +1,312 @@
+{
+  "test": "2 instances x 5000 clients, 2s collection window, 5 runs",
+  "totalDeliveries": 75000,
+  "totalMissed400": 0,
+  "missedPercent": 0,
+  "runs": [
+    {
+      "run": 1,
+      "expected": 15000,
+      "received": 15000,
+      "ontime": 15000,
+      "missed400": 0,
+      "missedPercent": 0,
+      "buckets": {
+        "400-500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "500-600ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "600-800ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "800-1000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1000-1500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1500-2000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        ">2000ms (undelivered)": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        }
+      }
+    },
+    {
+      "run": 2,
+      "expected": 15000,
+      "received": 15000,
+      "ontime": 15000,
+      "missed400": 0,
+      "missedPercent": 0,
+      "buckets": {
+        "400-500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "500-600ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "600-800ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "800-1000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1000-1500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1500-2000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        ">2000ms (undelivered)": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        }
+      }
+    },
+    {
+      "run": 3,
+      "expected": 15000,
+      "received": 15000,
+      "ontime": 15000,
+      "missed400": 0,
+      "missedPercent": 0,
+      "buckets": {
+        "400-500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "500-600ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "600-800ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "800-1000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1000-1500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1500-2000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        ">2000ms (undelivered)": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        }
+      }
+    },
+    {
+      "run": 4,
+      "expected": 15000,
+      "received": 15000,
+      "ontime": 15000,
+      "missed400": 0,
+      "missedPercent": 0,
+      "buckets": {
+        "400-500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "500-600ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "600-800ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "800-1000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1000-1500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1500-2000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        ">2000ms (undelivered)": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        }
+      }
+    },
+    {
+      "run": 5,
+      "expected": 15000,
+      "received": 15000,
+      "ontime": 15000,
+      "missed400": 0,
+      "missedPercent": 0,
+      "buckets": {
+        "400-500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "500-600ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "600-800ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "800-1000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1000-1500ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        "1500-2000ms": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        },
+        ">2000ms (undelivered)": {
+          "count": 0,
+          "inst1": 0,
+          "inst2": 0,
+          "latencies": []
+        }
+      }
+    }
+  ],
+  "globalBuckets": {
+    "400-500ms": {
+      "count": 0,
+      "inst1": 0,
+      "inst2": 0,
+      "latencies": []
+    },
+    "500-600ms": {
+      "count": 0,
+      "inst1": 0,
+      "inst2": 0,
+      "latencies": []
+    },
+    "600-800ms": {
+      "count": 0,
+      "inst1": 0,
+      "inst2": 0,
+      "latencies": []
+    },
+    "800-1000ms": {
+      "count": 0,
+      "inst1": 0,
+      "inst2": 0,
+      "latencies": []
+    },
+    "1000-1500ms": {
+      "count": 0,
+      "inst1": 0,
+      "inst2": 0,
+      "latencies": []
+    },
+    "1500-2000ms": {
+      "count": 0,
+      "inst1": 0,
+      "inst2": 0,
+      "latencies": []
+    },
+    ">2000ms (undelivered)": {
+      "count": 0,
+      "inst1": 0,
+      "inst2": 0,
+      "latencies": []
+    }
+  }
+}
