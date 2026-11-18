@@ -34,6 +34,17 @@ app.get('/', (req, res) => {
     res.send('Hello from Sportz Express server!');
 });
 
+app.get('/config', (req, res) => {
+    const dataSource = (process.env.DATA_SOURCE || 'simulated').toLowerCase();
+    res.json({
+        dataSource,
+        provider: 'football-data.org',
+        providerName: 'Football-Data.org',
+        attribution: 'Football data provided by football-data.org',
+        attributionUrl: 'https://www.football-data.org/',
+    });
+});
+
 let lastCpuUsage = process.cpuUsage();
 let lastCpuTime = Date.now();
 

@@ -1,6 +1,14 @@
 import { API_BASE_URL } from "../constants";
 import { AiInsights, Commentary, CommentaryResponse, Match, MatchResponse } from "../types";
 
+export interface AppConfig {
+  dataSource: 'live' | 'replay' | 'simulated';
+  provider: string;
+  providerName: string;
+  attribution: string;
+  attributionUrl: string;
+}
+
 export const fetchMatches = async (limit = 50): Promise<MatchResponse> => {
   try {
     const response = await fetch(`${API_BASE_URL}/matches?limit=${limit}`, {
@@ -97,4 +105,28 @@ export const fetchAiMatchInsights = async (
   }
 
   return response.json();
+};
+
+export const fetchAppConfig = async (): Promise<AppConfig> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/config`, { method: "GET" });
+    if (!response.ok) {
+      return {
+        dataSource: "simulated",
+        provider: "football-data.org",
+        providerName: "Football-Data.org",
+        attribution: "Football data provided by football-data.org",
+        attributionUrl: "https://www.football-data.org/",
+      };
+    }
+    return await response.json();
+  } catch {
+    return {
+      dataSource: "simulated",
+      provider: "football-data.org",
+      providerName: "Football-Data.org",
+      attribution: "Football data provided by football-data.org",
+      attributionUrl: "https://www.football-data.org/",
+    };
+  }
 };

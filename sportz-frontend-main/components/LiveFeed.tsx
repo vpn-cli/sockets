@@ -123,6 +123,8 @@ export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoadin
             const metadataLabel = formatMetadata(msg.metadata);
             const eventBadge = getEventBadge(msg.eventType, msg.message);
             const isHighlight = eventBadge?.isHighlight;
+            const isEventBased = msg.message?.includes('[Event-based]');
+            const displayMessage = isEventBased ? msg.message.replace('[Event-based]', '').trim() : msg.message;
 
             return (
               <div
@@ -149,6 +151,11 @@ export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoadin
                         {msg.period}
                       </span>
                     )}
+                    {isEventBased && (
+                      <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 border border-blue-300 rounded font-mono text-[9px] font-bold">
+                        ⚡ EVENT-BASED
+                      </span>
+                    )}
                   </div>
                   {eventBadge && (
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-[10px] font-black ${eventBadge.color}`}>
@@ -168,7 +175,7 @@ export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoadin
                 )}
 
                 <p className="text-sm font-medium text-gray-900 leading-snug">
-                  {msg.message}
+                  {displayMessage}
                 </p>
 
                 {metadataLabel && (

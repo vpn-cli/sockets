@@ -12,6 +12,7 @@
     "db:studio": "drizzle-kit studio",
     "demo": "node src/crud-demo.js",
     "seed": "node src/seed/seed.js",
+    "ingest": "node src/ingestor/index.js",
     "benchmark": "node scripts/load-test.js"
   },
   "keywords": [],

@@ -22,6 +22,8 @@ export const createMatchSchema = z.object({
   endTime: z.iso.datetime(),
   homeScore: z.coerce.number().int().nonnegative().optional(),
   awayScore: z.coerce.number().int().nonnegative().optional(),
+  provider: z.string().optional(),
+  providerMatchId: z.string().optional(),
 }).superRefine((data, ctx) => {
   const start = new Date(data.startTime);
   const end = new Date(data.endTime);

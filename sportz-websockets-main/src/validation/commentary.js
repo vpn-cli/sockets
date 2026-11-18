@@ -12,6 +12,8 @@ export const createCommentarySchema = z.object({
   actor: z.string().optional(),
   team: z.string().optional(),
   message: z.string().min(1),
+  provider: z.string().optional(),
+  providerEventId: z.string().optional(),
   metadata: z.record(z.string(), z.any()).optional(),
   tags: z.array(z.string()).optional(),
 });

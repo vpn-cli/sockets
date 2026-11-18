@@ -102,3 +102,21 @@ services:
       - DELAY_MS=${DELAY_MS:-500}
     depends_on:
       - loadbalancer
+
+  ingestor:
+    build:
+      context: ./sportz-websockets-main
+      dockerfile: Dockerfile
+    container_name: sportz-ingestor
+    restart: unless-stopped
+    command: ["npm", "run", "ingest"]
+    environment:
+      - API_URL=http://loadbalancer:80
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - DATA_SOURCE=${DATA_SOURCE:-simulated}
+      - FOOTBALL_DATA_API_KEY=${FOOTBALL_DATA_API_KEY:-}
+      - REPLAY_SPEED=${REPLAY_SPEED:-1x}
+      - POLL_INTERVAL_SECONDS=60
+    depends_on:
+      - loadbalancer

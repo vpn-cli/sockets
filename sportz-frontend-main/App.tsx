@@ -9,7 +9,7 @@ import { AiAnalystModal } from './components/AiAnalystModal';
 import { WinProbabilityMeter } from './components/WinProbabilityMeter';
 import { FanReactions } from './components/FanReactions';
 import { isSoundEnabled, setSoundEnabled } from './services/soundEffects';
-import { postCommentary, updateMatchScore } from './services/api';
+import { postCommentary, updateMatchScore, fetchAppConfig, AppConfig } from './services/api';
 
 const App: React.FC = () => {
   const pageSize = 6;
@@ -22,6 +22,17 @@ const App: React.FC = () => {
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
   const [isAutoSim, setIsAutoSim] = useState(false);
+  const [config, setConfig] = useState<AppConfig>({
+    dataSource: 'simulated',
+    provider: 'football-data.org',
+    providerName: 'Football-Data.org',
+    attribution: 'Football data provided by football-data.org',
+    attributionUrl: 'https://www.football-data.org/',
+  });
+
+  useEffect(() => {
+    fetchAppConfig().then((cfg) => setConfig(cfg)).catch(() => {});
+  }, []);
 
   const {
     matches,
@@ -216,6 +227,21 @@ const App: React.FC = () => {
                 <span className="text-[10px] font-mono font-bold bg-white text-black border border-black px-2 py-0.5 rounded-full shadow-hard-sm">
                   v2.0 Real-Time + AI
                 </span>
+                {config.dataSource === 'live' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono font-black bg-emerald-600 text-white border border-black px-2 py-0.5 rounded-full shadow-hard-sm animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white"></span>LIVE
+                  </span>
+                )}
+                {config.dataSource === 'replay' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono font-black bg-purple-600 text-white border border-black px-2 py-0.5 rounded-full shadow-hard-sm">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white"></span>REPLAY
+                  </span>
+                )}
+                {config.dataSource === 'simulated' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono font-black bg-amber-400 text-black border border-black px-2 py-0.5 rounded-full shadow-hard-sm">
+                    <span className="w-1.5 h-1.5 rounded-full bg-black"></span>SIMULATED
+                  </span>
+                )}
               </div>
               <p className="text-sm font-medium opacity-80">Full-Duplex Sports Telemetry & AI Analytics Dashboard</p>
             </div>
@@ -491,6 +517,18 @@ const App: React.FC = () => {
         <footer className="mt-12 border-t-2 border-gray-200 pt-8 pb-6 text-center text-sm text-gray-500 font-medium">
           <p>Powered by Node.js, Express, WebSockets, Google Gemini 3.8 Flash, and Neon PostgreSQL.</p>
           <p className="mt-1">Real-time bi-directional telemetry secured by Arcjet.</p>
+          <p className="mt-2 text-xs text-gray-500">
+            Football match data provided by{" "}
+            <a
+              href={config.attributionUrl || "https://www.football-data.org/"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-bold text-gray-700 hover:text-black"
+            >
+              football-data.org
+            </a>{" "}
+            API.
+          </p>
         </footer>
       </div>
     </div>
