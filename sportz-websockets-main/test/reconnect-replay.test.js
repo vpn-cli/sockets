@@ -451,9 +451,26 @@ describe('Reconnect Replay & Sequence Recovery Tests', () => {
         expect(client2Received).toContain(1);
         expect(client2LastSeenSeq).toBe(1);
 
+        const redisContainer = (() => {
+            if (process.env.REDIS_CONTAINER_NAME) {
+                return process.env.REDIS_CONTAINER_NAME.trim();
+            }
+            const byName = execSync('docker ps -a --filter "name=^/sportz-redis$" --format "{{.Names}}"', {
+                encoding: 'utf8',
+            }).trim().split(/\r?\n/).find(Boolean);
+            if (byName) return byName;
+
+            const byPort = execSync('docker ps --filter "publish=6379" --format "{{.Names}}"', {
+                encoding: 'utf8',
+            }).trim().split(/\r?\n/).find(Boolean);
+            if (byPort) return byPort;
+
+            throw new Error('Could not locate a running Redis Docker container (name=sportz-redis or publish=6379)');
+        })();
+
         try {
             // 3. Stop Redis fully (docker stop)
-            execSync('docker stop sportz-redis -t 1');
+            execSync(`docker stop ${redisContainer} -t 1`);
             await new Promise((r) => setTimeout(r, 400));
 
             // 4. Publish Seq 2 via Instance A while Redis is fully stopped
@@ -476,7 +493,7 @@ describe('Reconnect Replay & Sequence Recovery Tests', () => {
             expect(client2LastSeenSeq).toBe(1);
         } finally {
             // 5. Recover Redis (docker start) - guaranteed recovery in finally block
-            execSync('docker start sportz-redis');
+            execSync(`docker start ${redisContainer}`);
         }
 
         // Wait for ioredis clients on Instance A and Instance B to reconnect
