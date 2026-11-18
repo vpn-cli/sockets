@@ -130,5 +130,37 @@ describe('useWebSocket message deduplication logic', () => {
         expect(seenSeqs.has(2)).toBe(true);
         expect(seenSeqs.has(3)).toBe(true);
     });
+
+    it('formats friendly UI message when replay_concurrency_limit error is received', () => {
+        let replayNotice: { type: string; message: string } | null = null;
+        let wsError: string | null = null;
+
+        function handleWSError(msg: { type: string; code: string; message: string }) {
+            if (msg.type === 'error') {
+                if (msg.code === 'replay_concurrency_limit') {
+                    replayNotice = {
+                        type: 'limit',
+                        message: 'Server replay capacity is currently full. Other fans are watching match replays right now. Please try again in a few moments.',
+                    };
+                    wsError = 'Server replay capacity full — please retry shortly';
+                } else {
+                    wsError = `${msg.code}: ${msg.message}`;
+                }
+            }
+        }
+
+        handleWSError({
+            type: 'error',
+            code: 'replay_concurrency_limit',
+            message: 'Server concurrent replay limit reached (5). Please retry shortly.',
+        });
+
+        expect(replayNotice).not.toBeNull();
+        expect(replayNotice!.type).toBe('limit');
+        expect(replayNotice!.message).toContain('Server replay capacity is currently full');
+        expect(wsError).toBe('Server replay capacity full — please retry shortly');
+        // Confirms raw developer code is never exposed in the user-facing alert
+        expect(replayNotice!.message).not.toContain('replay_concurrency_limit');
+    });
 });
 

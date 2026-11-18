@@ -1,10 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { Commentary } from '../types';
+import { ReplayNotice } from '../hooks/useMatchData';
 
 interface LiveFeedProps {
   messages: Commentary[];
   isActive: boolean;
   isLoading?: boolean;
+  isFinished?: boolean;
+  onRequestReplay?: (speed: '1x' | '10x') => void;
+  replayNotice?: ReplayNotice | null;
+  onDismissReplayNotice?: () => void;
 }
 
 const formatMinute = (minute?: number) => {
@@ -58,7 +63,15 @@ const getEventBadge = (eventType?: string, message?: string) => {
   return null;
 };
 
-export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoading }) => {
+export const LiveFeed: React.FC<LiveFeedProps> = ({
+  messages,
+  isActive,
+  isLoading,
+  isFinished,
+  onRequestReplay,
+  replayNotice,
+  onDismissReplayNotice,
+}) => {
   const [highlightsOnly, setHighlightsOnly] = useState(false);
 
   const filteredMessages = useMemo(() => {
@@ -94,6 +107,26 @@ export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoadin
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          {onRequestReplay && isFinished && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => onRequestReplay('1x')}
+                title="Replay this match at normal speed"
+                className="text-xs px-2.5 py-1 rounded-full font-bold border border-black bg-white hover:bg-gray-100 transition-all flex items-center gap-1 shadow-sm active:translate-y-0.5"
+              >
+                <span>▶</span>
+                <span>Replay (1x)</span>
+              </button>
+              <button
+                onClick={() => onRequestReplay('10x')}
+                title="Replay this match at 10x speed"
+                className="text-xs px-2.5 py-1 rounded-full font-bold border border-black bg-brand-yellow hover:bg-yellow-300 text-black transition-all flex items-center gap-1 shadow-sm active:translate-y-0.5"
+              >
+                <span>⚡</span>
+                <span>10x</span>
+              </button>
+            </div>
+          )}
           <button
             onClick={() => setHighlightsOnly(!highlightsOnly)}
             className={`
@@ -105,6 +138,36 @@ export const LiveFeed: React.FC<LiveFeedProps> = ({ messages, isActive, isLoadin
           </button>
         </div>
       </div>
+
+      {/* Friendly Replay Notice / Error Banner */}
+      {replayNotice && (
+        <div
+          role="alert"
+          className={`mx-4 mt-3 p-3 rounded-xl border-2 flex items-center justify-between text-xs font-bold transition-all shadow-sm ${
+            replayNotice.type === 'limit'
+              ? 'bg-amber-50 border-amber-500 text-amber-950'
+              : replayNotice.type === 'rate_limited'
+              ? 'bg-yellow-50 border-yellow-500 text-yellow-950'
+              : 'bg-blue-50 border-blue-500 text-blue-950'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-base">
+              {replayNotice.type === 'limit' ? '⏳' : replayNotice.type === 'rate_limited' ? '⏱️' : '📢'}
+            </span>
+            <span>{replayNotice.message}</span>
+          </div>
+          {onDismissReplayNotice && (
+            <button
+              onClick={onDismissReplayNotice}
+              className="ml-2 font-mono text-gray-500 hover:text-black font-bold px-1"
+              aria-label="Dismiss message"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
       
       {/* Feed list */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">

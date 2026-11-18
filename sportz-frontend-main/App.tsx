@@ -46,6 +46,9 @@ const App: React.FC = () => {
     newMatchesCount,
     reactions,
     recentReaction,
+    replayNotice,
+    dismissReplayNotice,
+    requestClientReplay,
     sendReaction,
     dismissNewMatches,
     watchMatch,
@@ -297,8 +300,10 @@ const App: React.FC = () => {
             <div className="flex flex-col items-end gap-1">
               <StatusIndicator status={status} />
               {wsError && (
-                <span className="text-[10px] font-mono bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded">
-                  WS: {wsError}
+                <span className="text-[10px] font-mono bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-medium shadow-sm">
+                  {wsError.includes('replay_concurrency_limit')
+                    ? 'Replay capacity reached — please retry shortly'
+                    : `WS: ${wsError}`}
                 </span>
               )}
             </div>
@@ -512,6 +517,10 @@ const App: React.FC = () => {
                 messages={commentary} 
                 isActive={!!activeMatchId} 
                 isLoading={isCommentaryLoading} 
+                isFinished={activeMatch?.status.toLowerCase() === 'finished'}
+                onRequestReplay={requestClientReplay}
+                replayNotice={replayNotice}
+                onDismissReplayNotice={dismissReplayNotice}
               />
             </div>
           </aside>
@@ -535,6 +544,37 @@ const App: React.FC = () => {
             API.
           </p>
         </footer>
+
+        {/* Friendly Replay Capacity & Rate Limit Floating Notice */}
+        {replayNotice && (
+          <div
+            role="status"
+            className={`fixed bottom-6 right-6 z-50 max-w-sm p-4 rounded-2xl border-2 border-black shadow-hard flex items-start gap-3 transition-all ${
+              replayNotice.type === 'limit'
+                ? 'bg-amber-100 text-amber-950 border-amber-600'
+                : replayNotice.type === 'rate_limited'
+                ? 'bg-yellow-100 text-yellow-950 border-yellow-600'
+                : 'bg-white text-gray-900 border-black'
+            }`}
+          >
+            <span className="text-2xl leading-none">
+              {replayNotice.type === 'limit' ? '⏳' : replayNotice.type === 'rate_limited' ? '⏱️' : '📢'}
+            </span>
+            <div className="flex-1">
+              <p className="text-xs font-black uppercase tracking-wider mb-0.5">
+                {replayNotice.type === 'limit' ? 'Replay Busy' : replayNotice.type === 'rate_limited' ? 'Please Wait' : 'Replay Notice'}
+              </p>
+              <p className="text-xs font-semibold leading-relaxed">{replayNotice.message}</p>
+            </div>
+            <button
+              onClick={dismissReplayNotice}
+              className="text-gray-500 hover:text-black font-bold text-sm ml-1 px-1"
+              aria-label="Close notification"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
     </div>
     </>

@@ -4,6 +4,11 @@ import { Commentary, Match, ReactionCounts, WSMessage } from "../types";
 import { useWebSocket } from "./useWebSocket";
 import { playGoalSound, playImpactSound, playReactionSound } from "../services/soundEffects";
 
+export interface ReplayNotice {
+  type: 'limit' | 'rate_limited' | 'info';
+  message: string;
+}
+
 interface UseMatchData {
   matches: Match[];
   isLoading: boolean;
@@ -16,6 +21,9 @@ interface UseMatchData {
   newMatchesCount: number;
   reactions: ReactionCounts;
   recentReaction: { emoji: string; id: number } | null;
+  replayNotice: ReplayNotice | null;
+  dismissReplayNotice: () => void;
+  requestClientReplay: (speed?: '1x' | '10x') => void;
   sendReaction: (emoji: string) => void;
   dismissNewMatches: () => void;
   watchMatch: (id: string | number) => void;
@@ -34,6 +42,7 @@ export const useMatchData = (): UseMatchData => {
   const [newMatchesCount, setNewMatchesCount] = useState(0);
   const [reactions, setReactions] = useState<ReactionCounts>({});
   const [recentReaction, setRecentReaction] = useState<{ emoji: string; id: number } | null>(null);
+  const [replayNotice, setReplayNotice] = useState<ReplayNotice | null>(null);
   const latestMatchIdRef = useRef<string | number | null>(null);
   const subscribedMatchIdsRef = useRef(new Set<string>());
   const hasLoadedRef = useRef(false);
@@ -98,7 +107,33 @@ export const useMatchData = (): UseMatchData => {
         break;
       }
       case "error":
-        setWsError(`${msg.code}: ${msg.message}`);
+        if (msg.code === "replay_concurrency_limit") {
+          setReplayNotice({
+            type: "limit",
+            message: "Server replay capacity is currently full. Other fans are watching match replays right now. Please try again in a few moments.",
+          });
+          setWsError("Server replay capacity full — please retry shortly");
+        } else if (msg.code === "rate_limited") {
+          setReplayNotice({
+            type: "rate_limited",
+            message: "Rate limit reached: Please wait 3 seconds before requesting another replay.",
+          });
+          setWsError("Replay rate limit: please wait 3 seconds");
+        } else {
+          setWsError(`${msg.code}: ${msg.message}`);
+        }
+        break;
+      case "client_replay_started":
+        setReplayNotice({
+          type: "info",
+          message: `▶ Replaying match at ${msg.speed || "1x"} speed (${msg.count} events)...`,
+        });
+        break;
+      case "client_replay_completed":
+        setReplayNotice({
+          type: "info",
+          message: `✅ Match replay finished (${msg.replayedCount} events replayed).`,
+        });
         break;
       case "subscribed":
       case "unsubscribed":
@@ -119,6 +154,7 @@ export const useMatchData = (): UseMatchData => {
     subscribeMatch,
     unsubscribeMatch,
     sendReaction: wsSendReaction,
+    requestClientReplay: wsRequestClientReplay,
     disconnect,
   } = useWebSocket(handleWSMessage);
 
@@ -276,10 +312,25 @@ export const useMatchData = (): UseMatchData => {
         setCommentary([]);
         setReactions({});
         setRecentReaction(null);
+        setReplayNotice(null);
         setIsCommentaryLoading(false);
       }
     },
     [activeMatchId, unsubscribeMatch]
+  );
+
+  const dismissReplayNotice = useCallback(() => {
+    setReplayNotice(null);
+  }, []);
+
+  const requestClientReplay = useCallback(
+    (speed: '1x' | '10x' = '1x') => {
+      if (activeMatchId != null) {
+        setReplayNotice(null);
+        wsRequestClientReplay(activeMatchId, speed);
+      }
+    },
+    [activeMatchId, wsRequestClientReplay]
   );
 
   const sendReaction = useCallback(
@@ -303,6 +354,9 @@ export const useMatchData = (): UseMatchData => {
     newMatchesCount,
     reactions,
     recentReaction,
+    replayNotice,
+    dismissReplayNotice,
+    requestClientReplay,
     sendReaction,
     dismissNewMatches,
     watchMatch,

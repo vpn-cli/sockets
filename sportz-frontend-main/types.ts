@@ -106,6 +106,19 @@ export interface WSMessageReactionSnapshot {
   counts: ReactionCounts;
 }
 
+export interface WSMessageClientReplayStarted {
+  type: 'client_replay_started';
+  matchId: string | number;
+  speed: string;
+  count: number;
+}
+
+export interface WSMessageClientReplayCompleted {
+  type: 'client_replay_completed';
+  matchId: string | number;
+  replayedCount: number;
+}
+
 export interface AiInsights {
   summary: string;
   momentum: {
@@ -132,4 +145,6 @@ export type WSMessage =
   | WSMessageSubscribedAll
   | WSMessageUnsubscribedAll
   | WSMessageReactionBroadcast
-  | WSMessageReactionSnapshot;
+  | WSMessageReactionSnapshot
+  | WSMessageClientReplayStarted
+  | WSMessageClientReplayCompleted;
