@@ -49,3 +49,41 @@ describe('getReconnectDelay', () => {
     });
 });
 
+describe('useWebSocket message deduplication logic', () => {
+    it('filters out commentary messages with duplicate or older sequence numbers', () => {
+        const receivedMessages: any[] = [];
+        const lastSeen = new Map<string, number>();
+
+        function processMessage(msg: any) {
+            if (msg.type === 'commentary' && msg.data) {
+                const matchId = String(msg.data.matchId);
+                const seq = Number(msg.data.sequence ?? msg.data.seq);
+                if (matchId && Number.isInteger(seq) && seq > 0) {
+                    const prev = lastSeen.get(matchId) || 0;
+                    if (seq <= prev) {
+                        return; // dropped
+                    }
+                    lastSeen.set(matchId, seq);
+                }
+            }
+            receivedMessages.push(msg);
+        }
+
+        // Event seq 1 arrives
+        processMessage({ type: 'commentary', data: { matchId: 10, sequence: 1, message: 'Goal 1' } });
+        expect(receivedMessages.length).toBe(1);
+
+        // Duplicate event seq 1 arrives (re-delivered by network or replay)
+        processMessage({ type: 'commentary', data: { matchId: 10, sequence: 1, message: 'Goal 1 (duplicate)' } });
+        expect(receivedMessages.length).toBe(1); // dropped!
+
+        // Event seq 2 arrives
+        processMessage({ type: 'commentary', data: { matchId: 10, sequence: 2, message: 'Yellow card' } });
+        expect(receivedMessages.length).toBe(2);
+
+        // Older event seq 1 arrives out of order
+        processMessage({ type: 'commentary', data: { matchId: 10, sequence: 1, message: 'Old event' } });
+        expect(receivedMessages.length).toBe(2); // dropped!
+    });
+});
+

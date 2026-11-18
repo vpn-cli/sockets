@@ -75,6 +75,7 @@ export function attachWebSocketServer(server, {
     const matchReactions = new Map();
     const inFlightMatchLookups = new Map();
     const negativeMatchIdsSet = new Set();
+    const matchEventBuffer = new Map();
 
     const activePub = enableRedis ? (redisPub || getPublisher()) : null;
     const activeSub = enableRedis ? (redisSub || getSubscriber()) : null;
@@ -302,12 +303,105 @@ export function attachWebSocketServer(server, {
                 reactionCounts = matchReactions.get(matchId) || { '🔥': 0, '👏': 0, '⚡': 0, '❤️': 0, '⚽': 0, '🎯': 0 };
             }
 
-            // Send initial reaction counts
+            // Send initial reaction counts (reactions are snapshot-only)
             sendJson(socket, {
                 type: 'reaction_snapshot',
                 matchId,
                 counts: reactionCounts
             });
+
+            // Replay Missed Messages on Reconnect (seq > lastSeq)
+            const lastSeq = typeof message?.lastSeq === 'number' && Number.isInteger(message.lastSeq) && message.lastSeq >= 0
+                ? message.lastSeq
+                : null;
+
+            if (lastSeq !== null) {
+                let replayedEvents = null;
+                let isOversizedGap = false;
+
+                // 1. Fetch from Postgres if configured
+                if (process.env.DATABASE_URL) {
+                    try {
+                        const { db } = await import("../db/db.js");
+                        const { commentary, matches } = await import("../db/schema.js");
+                        const { eq, gt, asc, desc, and } = await import("drizzle-orm");
+
+                        // Fetch up to 201 events to detect if gap exceeds 200
+                        const rows = await db
+                            .select()
+                            .from(commentary)
+                            .where(and(eq(commentary.matchId, matchId), gt(commentary.sequence, lastSeq)))
+                            .orderBy(asc(commentary.sequence))
+                            .limit(201);
+
+                        if (rows.length > 200) {
+                            isOversizedGap = true;
+                            const [matchRow] = await db
+                                .select()
+                                .from(matches)
+                                .where(eq(matches.id, matchId))
+                                .limit(1);
+
+                            const recent = await db
+                                .select()
+                                .from(commentary)
+                                .where(eq(commentary.matchId, matchId))
+                                .orderBy(desc(commentary.sequence))
+                                .limit(50);
+
+                            sendJson(socket, {
+                                type: 'snapshot',
+                                matchId,
+                                reason: 'gap_exceeded',
+                                match: matchRow || null,
+                                recentCommentary: recent.reverse(),
+                            });
+                        } else {
+                            replayedEvents = rows;
+                        }
+                    } catch (err) {
+                        console.warn(`[Replay] DB query skipped/failed for match ${matchId}:`, err.message);
+                    }
+                }
+
+                // 2. Fallback to in-memory event buffer (for local/test mode without DB)
+                if (!isOversizedGap && replayedEvents === null) {
+                    const buffer = matchEventBuffer.get(matchId) || [];
+                    const filtered = buffer.filter((e) => (e.sequence || e.seq) > lastSeq);
+                    const currentMax = buffer.length > 0 ? (buffer[buffer.length - 1].sequence || buffer[buffer.length - 1].seq) : lastSeq;
+
+                    if (currentMax - lastSeq > 200) {
+                        sendJson(socket, {
+                            type: 'snapshot',
+                            matchId,
+                            reason: 'gap_exceeded',
+                            recentCommentary: buffer.slice(-50),
+                        });
+                        isOversizedGap = true;
+                    } else {
+                        replayedEvents = filtered;
+                    }
+                }
+
+                // 3. Deliver replayed events in order with no duplicates
+                if (!isOversizedGap && Array.isArray(replayedEvents) && replayedEvents.length > 0) {
+                    sendJson(socket, {
+                        type: 'replay_events',
+                        matchId,
+                        events: replayedEvents,
+                        count: replayedEvents.length,
+                    });
+
+                    for (const ev of replayedEvents) {
+                        sendJson(socket, {
+                            type: 'commentary',
+                            data: ev,
+                            isReplay: true,
+                        });
+                    }
+                }
+            }
+
             return;
         }
 
@@ -469,7 +563,16 @@ export function attachWebSocketServer(server, {
     }
 
     function broadcastCommentary(matchId, comment) {
-        broadcastToMatch(matchId, { type: 'commentary', data: comment });
+        const id = Number(matchId);
+        let buf = matchEventBuffer.get(id);
+        if (!buf) {
+            buf = [];
+            matchEventBuffer.set(id, buf);
+        }
+        buf.push(comment);
+        if (buf.length > 250) buf.shift();
+
+        broadcastToMatch(id, { type: 'commentary', data: comment });
     }
 
     function broadcastScoreUpdate(matchId, scoreData) {

@@ -29,6 +29,7 @@ export const useWebSocket = (
   const reconnectAttempts = useRef(0);
   const isIntentionalClose = useRef(false);
   const subscribedMatchIdsRef = useRef(new Set<string>());
+  const lastSeenSeqByMatch = useRef<Map<string, number>>(new Map());
   const onMessageRef = useRef(onMessage);
 
   useEffect(() => {
@@ -88,12 +89,14 @@ export const useWebSocket = (
           reconnectTimeout.current = null;
         }
 
-        // Re-subscribe to any active matches
+        // Re-subscribe to any active matches with lastSeen sequence
         if (subscribedMatchIdsRef.current.size > 0) {
           subscribedMatchIdsRef.current.forEach((matchId) => {
+            const lastSeq = lastSeenSeqByMatch.current.get(matchId) || 0;
             socket.send(JSON.stringify({
               type: 'subscribe',
               matchId: Number(matchId),
+              lastSeq,
             }));
           });
         }
@@ -104,6 +107,32 @@ export const useWebSocket = (
         if (ws.current !== socket) return;
         try {
           const data = JSON.parse(event.data);
+
+          // Track last seen sequence and drop duplicates by sequence
+          if (data?.type === 'commentary' && data?.data) {
+            const matchId = String(data.data.matchId || data.matchId);
+            const seq = Number(data.data.sequence ?? data.data.seq);
+            if (matchId && Number.isInteger(seq) && seq > 0) {
+              const prevSeq = lastSeenSeqByMatch.current.get(matchId) || 0;
+              if (seq <= prevSeq) {
+                // Drop duplicate message
+                return;
+              }
+              lastSeenSeqByMatch.current.set(matchId, seq);
+            }
+          } else if (data?.type === 'replay_events' && Array.isArray(data?.events)) {
+            const matchId = String(data.matchId);
+            for (const ev of data.events) {
+              const seq = Number(ev.sequence ?? ev.seq);
+              if (seq > 0) {
+                const prevSeq = lastSeenSeqByMatch.current.get(matchId) || 0;
+                if (seq > prevSeq) {
+                  lastSeenSeqByMatch.current.set(matchId, seq);
+                }
+              }
+            }
+          }
+
           onMessageRef.current?.(data);
         } catch (e) {
           console.error('[WebSocket] Failed to parse message:', e);
@@ -170,12 +199,14 @@ export const useWebSocket = (
   const subscribeMatch = useCallback((matchId: string | number) => {
     const normalized = normalizeId(matchId);
     subscribedMatchIdsRef.current.add(normalized);
-    sendMessage({ type: 'subscribe', matchId: Number(matchId) });
+    const lastSeq = lastSeenSeqByMatch.current.get(normalized) || 0;
+    sendMessage({ type: 'subscribe', matchId: Number(matchId), lastSeq });
   }, [sendMessage]);
 
   const unsubscribeMatch = useCallback((matchId: string | number) => {
     const normalized = normalizeId(matchId);
     subscribedMatchIdsRef.current.delete(normalized);
+    lastSeenSeqByMatch.current.delete(normalized);
     sendMessage({ type: 'unsubscribe', matchId: Number(matchId) });
   }, [sendMessage]);
 
