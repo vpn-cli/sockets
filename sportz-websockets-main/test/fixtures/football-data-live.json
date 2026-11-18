@@ -1,0 +1,100 @@
+{
+  "filters": {
+    "status": ["IN_PLAY", "PAUSED"]
+  },
+  "resultSet": {
+    "count": 2,
+    "first": "2026-11-18",
+    "last": "2026-11-18",
+    "played": 2
+  },
+  "matches": [
+    {
+      "area": { "id": 2072, "name": "England", "code": "ENG" },
+      "competition": { "id": 2021, "name": "Premier League", "code": "PL" },
+      "season": { "id": 1564, "startDate": "2026-08-16", "endDate": "2027-05-25" },
+      "id": 438101,
+      "utcDate": "2026-11-18T19:00:00Z",
+      "status": "IN_PLAY",
+      "minute": 54,
+      "period": "SECOND_HALF",
+      "homeTeam": { "id": 65, "name": "Manchester City FC", "shortName": "Man City" },
+      "awayTeam": { "id": 66, "name": "Manchester United FC", "shortName": "Man United" },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": 2, "away": 1 },
+        "halfTime": { "home": 1, "away": 1 }
+      },
+      "goals": [
+        {
+          "minute": 23,
+          "type": "REGULAR",
+          "team": { "id": 65, "name": "Manchester City FC" },
+          "scorer": { "id": 1234, "name": "Erling Haaland" },
+          "assist": { "id": 5678, "name": "Kevin De Bruyne" },
+          "score": { "home": 1, "away": 0 }
+        },
+        {
+          "minute": 38,
+          "type": "PENALTY",
+          "team": { "id": 66, "name": "Manchester United FC" },
+          "scorer": { "id": 2345, "name": "Bruno Fernandes" },
+          "assist": null,
+          "score": { "home": 1, "away": 1 }
+        },
+        {
+          "minute": 52,
+          "type": "REGULAR",
+          "team": { "id": 65, "name": "Manchester City FC" },
+          "scorer": { "id": 3456, "name": "Phil Foden" },
+          "assist": { "id": 1234, "name": "Erling Haaland" },
+          "score": { "home": 2, "away": 1 }
+        }
+      ],
+      "bookings": [
+        {
+          "minute": 31,
+          "team": { "id": 66, "name": "Manchester United FC" },
+          "player": { "id": 9901, "name": "Casemiro" },
+          "card": "YELLOW_CARD"
+        },
+        {
+          "minute": 45,
+          "team": { "id": 65, "name": "Manchester City FC" },
+          "player": { "id": 9902, "name": "Rodri" },
+          "card": "YELLOW_CARD"
+        }
+      ]
+    },
+    {
+      "area": { "id": 2224, "name": "Spain", "code": "ESP" },
+      "competition": { "id": 2014, "name": "Primera Division", "code": "PD" },
+      "season": { "id": 1565, "startDate": "2026-08-15", "endDate": "2027-05-24" },
+      "id": 438102,
+      "utcDate": "2026-11-18T20:00:00Z",
+      "status": "PAUSED",
+      "minute": 45,
+      "period": "HALF_TIME",
+      "homeTeam": { "id": 86, "name": "Real Madrid CF", "shortName": "Real Madrid" },
+      "awayTeam": { "id": 81, "name": "FC Barcelona", "shortName": "Barcelona" },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": 1, "away": 0 },
+        "halfTime": { "home": 1, "away": 0 }
+      },
+      "goals": [
+        {
+          "minute": 18,
+          "type": "REGULAR",
+          "team": { "id": 86, "name": "Real Madrid CF" },
+          "scorer": { "id": 4567, "name": "Vinicius Junior" },
+          "assist": { "id": 7890, "name": "Jude Bellingham" },
+          "score": { "home": 1, "away": 0 }
+        }
+      ],
+      "bookings": []
+    }
+  ]
+}
