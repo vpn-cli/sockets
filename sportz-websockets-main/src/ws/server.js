@@ -1,5 +1,13 @@
 import { WebSocket, WebSocketServer } from 'ws';
-import { wsArcjet, isLocalhostIp, getClientIp } from "../arcjet.js";
+import {
+    wsArcjet,
+    isLocalhostIp,
+    getClientIp,
+    buildProtectOptions,
+    logArcjetDecisionIfNeeded,
+    logArcjetError,
+    arcjetMode,
+} from "../arcjet.js";
 import {
     getMatchChannel,
     GLOBAL_CHANNEL,
@@ -147,6 +155,9 @@ export function attachWebSocketServer(server, {
     redisPub = null,
     redisSub = null,
     enableRedis = true,
+    wsArcjetClient = wsArcjet,
+    trustProxy = undefined,
+    arcjetLogger = console,
 } = {}) {
     const matchSubscribers = new Map();
     const matchReactions = new Map();
@@ -855,19 +866,29 @@ export function attachWebSocketServer(server, {
     const wss = new WebSocketServer({ noServer: true, path: '/ws', maxPayload: 1024 * 1024 });
 
     server.on('upgrade', async (req, socket, head) => {
-        const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+        const { pathname } = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
         if (pathname !== '/ws') {
             return;
         }
 
-        const clientIp = getClientIp(req);
-        if (wsArcjet && !isLocalhostIp(clientIp)) {
+        const clientIp = getClientIp(req, trustProxy);
+        if (wsArcjetClient && !isLocalhostIp(clientIp)) {
             try {
-                const decision = await wsArcjet.protect(req, { ip: clientIp });
+                const protectOptions = buildProtectOptions(clientIp, arcjetLogger);
+                const decision = await wsArcjetClient.protect(req, protectOptions);
 
-                if (decision.isDenied()) {
-                    if (decision.reason.isRateLimit()) {
+                logArcjetDecisionIfNeeded({
+                    scope: 'ws',
+                    req,
+                    clientIp,
+                    decision,
+                    mode: arcjetMode,
+                    logger: arcjetLogger,
+                });
+
+                if (decision.isDenied?.()) {
+                    if (decision.reason?.isRateLimit?.()) {
                         socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
                     } else {
                         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
@@ -876,7 +897,14 @@ export function attachWebSocketServer(server, {
                     return;
                 }
             } catch (e) {
-                console.error('WS upgrade protection error', e);
+                logArcjetError({
+                    scope: 'ws',
+                    req,
+                    clientIp,
+                    error: e,
+                    mode: arcjetMode,
+                    logger: arcjetLogger,
+                });
                 if (process.env.NODE_ENV === 'production') {
                     socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
                     socket.destroy();
