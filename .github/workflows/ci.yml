@@ -2,7 +2,7 @@ name: Sportz CI Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "feature/**" ]
   pull_request:
     branches: [ "main" ]
 
@@ -42,7 +42,7 @@ jobs:
     - name: Setup Node.js Environment
       uses: actions/setup-node@v4
       with:
-        node-version: '20.x'
+        node-version: '24.x'
         
     - name: Verify Backend (Node.js/Express)
       working-directory: ./sportz-websockets-main
