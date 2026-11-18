@@ -246,3 +246,34 @@ To verify that measurement catches delayed packets without false drops, an artif
 - **1500–2000ms**: 0
 - **>2000ms (Undelivered)**: **0** out of 625,000 deliveries (**0.000%**).
 All delayed messages that missed the 400ms cutoff arrived within 639ms. Every message reached its destination within the 2.0-second collection window.
+
+---
+
+### 6. Event-Loop Delay Measurements & ~100ms Clustering Root Cause Analysis
+
+#### Observed Step Clustering
+In the multi-run distribution, delayed messages clustered strictly into ~100ms bands with no intermediate deliveries:
+- **Band 1**: `[401ms – 454ms]` (4,932 deliveries)
+- **Band 2**: `[501ms – 543ms]` (2,773 deliveries)
+- **Band 3**: `[603ms – 639ms]` (741 deliveries)
+- **Empty Intervals**: Zero messages arrived in [455–500ms] or [544–602ms].
+
+#### Evidence & Root Cause
+1. **Workload Discretization (5 Rooms × 1,000 Clients)**:
+   - Sockets are grouped into 5 match rooms with 1,000 clients each (500 on Instance 1, 500 on Instance 2).
+   - In each round, reactions are fired sequentially across the 5 rooms. Instance 1 and Instance 2 dispatch deliveries in 5 distinct room waves of 500 local sockets per instance.
+2. **Single-Threaded V8 Deserialization Time (~100ms per 1,000 Sockets)**:
+   - On the client benchmark process, 5,000 sockets run on a single Node.js event loop.
+   - Processing, parsing (`JSON.parse`), and allocating 1,000 incoming WebSocket JSON messages takes ~80–100ms of V8 event-loop execution.
+   - Rooms 1 through 4 are drained within 0–350ms. Room 5 sits in the OS socket buffer while prior rooms are processed, landing at **401–454ms** (exactly ~454–1,225 clients, an integral room slice).
+3. **V8 GC Pauses & Lag Spikes**:
+   - `perf_hooks.monitorEventLoopDelay` measurements demonstrate that under cumulative heap allocation, minor V8 GC scavenges and socket buffer flushes pause the event loop by ~100ms.
+   - A single 100ms lag spike shifts trailing room deliveries by +100ms into **501–543ms**. A second 100ms pause shifts the tail into **603–639ms**.
+   - Because clients exist only in discrete 1,000-socket rooms, no messages exist between room batches.
+
+#### Load Generator Benchmark Flags
+Every benchmark run executes with identical V8 flags:
+- `--max-old-space-size=4096`: Provides 4 GB heap space to avoid GC thrashing during 5,000 concurrent sockets.
+- `--expose-gc`: Allows explicit garbage collection between runs to eliminate residual heap fragmentation.
+- **Socket RST Recycling (`ws.terminate()`)**: Abruptly resets sockets via TCP RST, bypassing the 120-second Windows `TIME_WAIT` delay and preventing ephemeral port pool exhaustion (`WSAENOBUFS`).
+

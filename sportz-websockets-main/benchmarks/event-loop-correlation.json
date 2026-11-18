@@ -1,0 +1,252 @@
+[
+  {
+    "round": 1,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.6,
+    "loadGenP99": 23.1,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 2,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.6,
+    "loadGenP99": 21,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 3,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 25.6,
+    "loadGenP99": 25,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 4,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 33.5,
+    "loadGenP99": 23.4,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 5,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 22.9,
+    "loadGenP99": 21.4,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 6,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 22.4,
+    "loadGenP99": 21.6,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 7,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 22.1,
+    "loadGenP99": 17.6,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 8,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 23.7,
+    "loadGenP99": 21.1,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 9,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.8,
+    "loadGenP99": 24,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 10,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.4,
+    "loadGenP99": 22.4,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 11,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 23.3,
+    "loadGenP99": 22.1,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 12,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.7,
+    "loadGenP99": 24.5,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 13,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 22.8,
+    "loadGenP99": 21.6,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 14,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 48.4,
+    "loadGenP99": 46.3,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 15,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 25.1,
+    "loadGenP99": 23.8,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 16,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.8,
+    "loadGenP99": 23.8,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 17,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.2,
+    "loadGenP99": 23.6,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 18,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.9,
+    "loadGenP99": 16.8,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 19,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 26.7,
+    "loadGenP99": 26.6,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 20,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 28.4,
+    "loadGenP99": 26.5,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 21,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 30.2,
+    "loadGenP99": 25.1,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 22,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 23.2,
+    "loadGenP99": 23.1,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 23,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 46.9,
+    "loadGenP99": 45.5,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 24,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.8,
+    "loadGenP99": 23.5,
+    "inst1Max": 0,
+    "inst2Max": 0
+  },
+  {
+    "round": 25,
+    "ontime": 5000,
+    "late": 0,
+    "lateLatencies": [],
+    "loadGenMax": 24.2,
+    "loadGenP99": 24.1,
+    "inst1Max": 0,
+    "inst2Max": 0
+  }
+]
