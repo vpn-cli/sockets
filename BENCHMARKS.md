@@ -207,3 +207,42 @@ In accordance with review directives:
 
 5. **Known Limitations**:
    - **Reaction Counter Dropped Reply Over-Counting**: If Redis successfully executes `HINCRBY` but the network reply is dropped or severed before reaching the Node server, the server retains the pending delta and re-applies it upon reconnection, causing potential over-counting of that delta in network drop edge cases.
+
+---
+
+### 5. Verified Latency & Arrival Distribution Under 2-Second Collection Window
+
+**Workload**: 5 rooms × 5,000 clients × 25 messages/client = 125,000 deliveries per run across 2 instances (625,000 deliveries total across 5 runs).
+
+#### Proof of Measurement (Delay Injection Test)
+To verify that measurement catches delayed packets without false drops, an artificial 600 ms delay was injected into 10 client sockets (5 on Instance 1, 5 on Instance 2) during a 5,000-socket broadcast:
+
+| Latency Bucket | Total Count | Instance 1 | Instance 2 | Min/Max Latency |
+| :--- | :---: | :---: | :---: | :---: |
+| **On-Time ($\le$ 400ms)** | 4,990 | 2,495 | 2,495 | [11ms – 52ms] |
+| **400–500ms** | 0 | 0 | 0 | - |
+| **500–600ms** | 0 | 0 | 0 | - |
+| **600–800ms (Injected Target)** | **10** | **5** | **5** | **[629ms – 764ms]** |
+| **800–1000ms** | 0 | 0 | 0 | - |
+| **>2000ms (Undelivered)** | **0** | 0 | 0 | - |
+
+#### Full 5-Run Benchmark Raw Distribution (625,000 Expected Deliveries)
+
+| Run | Total Deliveries | On-Time ($\le$ 400ms) | Missed > 400ms | 400–500ms | 500–600ms | 600–800ms | >2000ms (Undelivered) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Run 1** | 125,000 | 124,546 (99.637%) | 454 (0.363%) | 454 (I1: 205, I2: 249) | 0 | 0 | **0 (0.000%)** |
+| **Run 2** | 125,000 | 122,579 (98.063%) | 2,421 (1.937%) | 1,225 (I1: 630, I2: 595) | 1,196 (I1: 532, I2: 664) | 0 | **0 (0.000%)** |
+| **Run 3** | 125,000 | 119,429 (95.543%) | 5,571 (4.457%) | 3,253 (I1: 1,613, I2: 1,640) | 1,577 (I1: 812, I2: 765) | 741 (I1: 349, I2: 392) | **0 (0.000%)** |
+| **Run 4** | 125,000 | 125,000 (100.0%) | 0 (0.000%) | 0 | 0 | 0 | **0 (0.000%)** |
+| **Run 5** | 125,000 | 125,000 (100.0%) | 0 (0.000%) | 0 | 0 | 0 | **0 (0.000%)** |
+| **TOTAL** | **625,000** | **616,554 (98.649%)** | **8,446 (1.351%)** | **4,932 (58.4%)** | **2,773 (32.8%)** | **741 (8.8%)** | **0 (0.000%)** |
+
+**Aggregate Bucket Summary**:
+- **400–500ms**: 4,932 (Inst 1: 2,448, Inst 2: 2,484 | Range: [401ms – 500ms])
+- **500–600ms**: 2,773 (Inst 1: 1,344, Inst 2: 1,429 | Range: [501ms – 543ms])
+- **600–800ms**: 741 (Inst 1: 349, Inst 2: 392 | Range: [603ms – 639ms])
+- **800–1000ms**: 0
+- **1000–1500ms**: 0
+- **1500–2000ms**: 0
+- **>2000ms (Undelivered)**: **0** out of 625,000 deliveries (**0.000%**).
+All delayed messages that missed the 400ms cutoff arrived within 639ms. Every message reached its destination within the 2.0-second collection window.

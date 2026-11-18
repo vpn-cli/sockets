@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 try {
     const { default: AgentAPI } = await import("apminsight");
     AgentAPI.config();

@@ -3,10 +3,12 @@ import { spawn, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
+dotenv.config({ path: path.resolve(ROOT_DIR, '.env') });
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 
 const INSTANCES = [
@@ -16,10 +18,11 @@ const INSTANCES = [
 
 const TOTAL_CLIENTS = 5000;
 const CLIENTS_PER_INSTANCE = 2500;
+const MATCH_ROOMS = [1, 2, 3, 4, 5]; // 5 rooms (1,000 clients/room)
+const BROADCAST_ROUNDS_PER_RUN = 25; // 25 messages per client
 const TOTAL_RUNS = 5;
-const BROADCAST_ROUNDS_PER_RUN = 3;
 const COLLECTION_WINDOW_MS = 2000; // 2.0s collection window
-const SLA_CUTOFF_MS = 400; // Messages > 400ms are considered to have "missed 400ms"
+const SLA_CUTOFF_MS = 400; // >400ms considered missed
 
 function delay(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -77,13 +80,14 @@ class BenchmarkClient {
         this.connected = false;
         this.subscribed = false;
         this.receivedMessages = [];
+        this.injectDelayMs = 0; // If > 0, artificially delays arrival timestamp
     }
 
     connect() {
         return new Promise((resolve) => {
             try {
                 this.ws = new WebSocket(this.targetWs);
-            } catch (err) {
+            } catch {
                 return resolve(false);
             }
 
@@ -98,10 +102,10 @@ class BenchmarkClient {
                 this.connected = true;
             });
 
-            this.ws.on('message', (raw) => {
+            this.ws.on('message', async (raw) => {
                 try {
                     const msg = JSON.parse(raw.toString());
-                    const receivedAt = Date.now();
+                    let receivedAt = Date.now();
 
                     if (msg.type === 'welcome') {
                         this.ws.send(JSON.stringify({ type: 'subscribe', matchId: this.matchId }));
@@ -110,6 +114,10 @@ class BenchmarkClient {
                         clearTimeout(timeout);
                         resolve(true);
                     } else if (msg.type === 'reaction_broadcast' || msg.type === 'commentary' || msg.type === 'score_update') {
+                        if (this.injectDelayMs > 0) {
+                            await delay(this.injectDelayMs);
+                            receivedAt = Date.now();
+                        }
                         this.receivedMessages.push({
                             type: msg.type,
                             serverTimestamp: msg.serverTimestamp,
@@ -147,7 +155,7 @@ class BenchmarkClient {
         if (this.ws) {
             try {
                 this.ws.removeAllListeners();
-                this.ws.close();
+                this.ws.terminate();
             } catch {}
             this.ws = null;
         }
@@ -183,13 +191,36 @@ function categorizeLatency(latency, instanceId, buckets) {
     buckets[key].latencies.push(latency);
 }
 
+function printDistributionTable(title, buckets, totalExpected, missedCount) {
+    console.log(`\n========================================================================`);
+    console.log(`📊 ${title}`);
+    console.log(`Total Expected Deliveries: ${totalExpected.toLocaleString()}`);
+    console.log(`Total Messages Missing 400ms: ${missedCount.toLocaleString()} (${((missedCount / totalExpected) * 100).toFixed(3)}%)`);
+    console.log(`------------------------------------------------------------------------`);
+    console.log(`Latency Bucket            | Total Count | Instance 1 | Instance 2 | Min/Max Latency`);
+    console.log(`--------------------------+-------------+------------+------------+----------------`);
+
+    for (const [bucket, data] of Object.entries(buckets)) {
+        const minLat = data.latencies.length > 0 ? `${Math.min(...data.latencies)}ms` : '-';
+        const maxLat = data.latencies.length > 0 ? `${Math.max(...data.latencies)}ms` : '-';
+        const latRange = data.latencies.length > 0 ? `[${minLat} - ${maxLat}]` : '-';
+        const bucketStr = bucket.padEnd(25);
+        const countStr = String(data.count).padStart(11);
+        const inst1Str = String(data.inst1).padStart(10);
+        const inst2Str = String(data.inst2).padStart(10);
+        console.log(`${bucketStr} | ${countStr} | ${inst1Str} | ${inst2Str} | ${latRange}`);
+    }
+    console.log(`========================================================================\n`);
+}
+
 async function run() {
     console.log('========================================================================');
-    console.log('📊 Benchmark: 2 Instances × 5,000 Clients (2s Collection Window, 5 Runs)');
+    console.log('📊 Benchmark: 2 Instances × 5,000 Clients (2s Collection Window)');
+    console.log('Workload: 5 rooms × 5,000 clients × 25 messages/client (125,000 msgs/run)');
     console.log('Tracking arrival times and instance breakdown for all messages > 400ms');
     console.log('========================================================================');
 
-    // 1. Start Server 1 and Server 2
+    // 1. Launch Instance 1 (8000) and Instance 2 (8001)
     console.log('\n[Setup] Launching Instance 1 (port 8000) and Instance 2 (port 8001)...');
     const proc1 = spawnServer(8000);
     const proc2 = spawnServer(8001);
@@ -201,6 +232,86 @@ async function run() {
         ]);
         console.log('✅ Both server instances healthy and listening.');
 
+        // ====================================================================
+        // STEP 1: PROVE THE MEASUREMENT CAN CATCH DELAYS (INJECT 600ms DELAY)
+        // ====================================================================
+        console.log('\n========================================================================');
+        console.log('🧪 PROOF OF MEASUREMENT: Injecting 600ms delay on 10 messages');
+        console.log('Verifying that injected delays land strictly in the 600-800ms bucket');
+        console.log('========================================================================');
+
+        const proofClients = [];
+        const BATCH_SIZE = 100;
+        const BATCH_DELAY_MS = 20;
+
+        for (let i = 0; i < TOTAL_CLIENTS; i += BATCH_SIZE) {
+            const batch = [];
+            const limit = Math.min(i + BATCH_SIZE, TOTAL_CLIENTS);
+            for (let j = i; j < limit; j++) {
+                const instance = INSTANCES[j % 2];
+                const matchId = MATCH_ROOMS[j % MATCH_ROOMS.length];
+                const client = new BenchmarkClient(j, instance.id, instance.ws, matchId);
+                proofClients.push(client);
+                batch.push(client.connect());
+            }
+            await Promise.all(batch);
+            if (limit < TOTAL_CLIENTS) await delay(BATCH_DELAY_MS);
+        }
+
+        const proofConnected = proofClients.filter(c => c.connected && c.subscribed);
+        console.log(`✅ Proof Clients Connected: ${proofConnected.length}/${TOTAL_CLIENTS}`);
+
+        // Inject 600ms artificial delay on exactly 10 clients (5 on Instance 1, 5 on Instance 2)
+        const delayClientIndices = [0, 200, 400, 600, 800, 1001, 1201, 1401, 1601, 1801];
+        for (const idx of delayClientIndices) {
+            proofClients[idx].injectDelayMs = 600;
+        }
+
+        const proofBuckets = createBuckets();
+        let proofMissed = 0;
+
+        // Group proof clients by room
+        const proofRooms = new Map();
+        for (const mId of MATCH_ROOMS) {
+            proofRooms.set(mId, proofClients.filter(c => c.connected && c.subscribed && c.matchId === mId));
+        }
+
+        // Fire 1 round across all 5 rooms
+        for (const [mId, subs] of proofRooms.entries()) {
+            for (const c of subs) c.receivedMessages = [];
+            subs[0].sendReaction('🔥');
+        }
+
+        await delay(COLLECTION_WINDOW_MS);
+
+        for (const c of proofClients) {
+            if (c.receivedMessages.length > 0) {
+                const lat = c.receivedMessages[0].latency;
+                if (lat > SLA_CUTOFF_MS) {
+                    proofMissed++;
+                    categorizeLatency(lat, c.instanceId, proofBuckets);
+                }
+            } else {
+                proofMissed++;
+                categorizeLatency(2500, c.instanceId, proofBuckets);
+            }
+        }
+
+        printDistributionTable('PROOF TEST: INJECTED 600ms DELAY DISTRIBUTION', proofBuckets, TOTAL_CLIENTS, proofMissed);
+
+        // Teardown proof clients
+        for (const c of proofClients) c.close();
+        await delay(1000);
+
+        // ====================================================================
+        // STEP 2: FULL 5-RUN BENCHMARK (ORIGINAL WORKLOAD: 25 MSGS/CLIENT)
+        // ====================================================================
+        console.log('========================================================================');
+        console.log('🚀 EXECUTING 5-RUN BENCHMARK WITH ORIGINAL LOAD-TEST.JS WORKLOAD');
+        console.log(`Configuration: 5 rooms × 5,000 clients × 25 messages/client = 125,000 deliveries/run`);
+        console.log(`Collection Window: ${COLLECTION_WINDOW_MS}ms | Runs: ${TOTAL_RUNS}`);
+        console.log('========================================================================');
+
         const runSummaries = [];
         const globalBuckets = createBuckets();
         let globalTotalDeliveries = 0;
@@ -208,14 +319,10 @@ async function run() {
 
         for (let runIdx = 1; runIdx <= TOTAL_RUNS; runIdx++) {
             console.log(`\n------------------------------------------------------------------------`);
-            console.log(`🚀 RUN ${runIdx}/${TOTAL_RUNS}: Connecting ${TOTAL_CLIENTS} sockets (2,500 per instance)...`);
+            console.log(`🚀 RUN ${runIdx}/${TOTAL_RUNS}: Connecting 5,000 sockets (2,500 per instance)...`);
             console.log(`------------------------------------------------------------------------`);
 
             const clients = [];
-            const MATCH_ROOMS = [1, 2, 3, 4, 5];
-            const BATCH_SIZE = 100;
-            const BATCH_DELAY_MS = 20;
-
             const connectStart = Date.now();
             for (let i = 0; i < TOTAL_CLIENTS; i += BATCH_SIZE) {
                 const batch = [];
@@ -228,12 +335,10 @@ async function run() {
                     batch.push(client.connect());
                 }
                 await Promise.all(batch);
-                if (limit < TOTAL_CLIENTS) {
-                    await delay(BATCH_DELAY_MS);
-                }
+                if (limit < TOTAL_CLIENTS) await delay(BATCH_DELAY_MS);
             }
 
-            const connected = clients.filter((c) => c.connected && c.subscribed);
+            const connected = clients.filter(c => c.connected && c.subscribed);
             const connectElapsed = Date.now() - connectStart;
             console.log(`✅ Connected & Subscribed: ${connected.length}/${TOTAL_CLIENTS} in ${connectElapsed}ms`);
 
@@ -242,69 +347,61 @@ async function run() {
             // Group clients by match room
             const roomSubscribers = new Map();
             for (const mId of MATCH_ROOMS) {
-                roomSubscribers.set(mId, clients.filter((c) => c.connected && c.subscribed && c.matchId === mId));
+                roomSubscribers.set(mId, clients.filter(c => c.connected && c.subscribed && c.matchId === mId));
             }
 
             const runBuckets = createBuckets();
             let runTotalExpected = 0;
-            let runTotalReceived = 0;
             let runMissed400Count = 0;
             let runOntimeCount = 0;
 
+            console.log(`Publishing ${BROADCAST_ROUNDS_PER_RUN} broadcast rounds across 5 rooms (125,000 deliveries)...`);
+
             for (let round = 1; round <= BROADCAST_ROUNDS_PER_RUN; round++) {
-                for (const matchId of MATCH_ROOMS) {
-                    const subs = roomSubscribers.get(matchId) || [];
+                // Clear message buffers for all subscribers before this round
+                for (const c of clients) {
+                    c.receivedMessages = [];
+                }
+
+                // Fire reaction in each of the 5 match rooms
+                for (const [mId, subs] of roomSubscribers.entries()) {
                     if (subs.length === 0) continue;
+                    subs[0].sendReaction('🔥');
+                }
 
-                    // Clear messages before firing broadcast
-                    for (const c of subs) {
-                        c.receivedMessages = [];
-                    }
+                // 2.0s collection window per round
+                await delay(COLLECTION_WINDOW_MS);
 
-                    // Send reaction broadcast from first client
-                    const publisher = subs[0];
-                    publisher.sendReaction('🔥');
-
-                    // 2.0s Collection Window
-                    await delay(COLLECTION_WINDOW_MS);
-
-                    // Collect metrics
-                    runTotalExpected += subs.length;
-
-                    for (const c of subs) {
-                        if (c.receivedMessages.length > 0) {
-                            runTotalReceived++;
-                            const msg = c.receivedMessages[0];
-                            const lat = msg.latency;
-                            if (lat <= SLA_CUTOFF_MS) {
-                                runOntimeCount++;
-                            } else {
-                                runMissed400Count++;
-                                categorizeLatency(lat, c.instanceId, runBuckets);
-                                categorizeLatency(lat, c.instanceId, globalBuckets);
-                            }
+                // Collect results for this round
+                for (const c of clients) {
+                    runTotalExpected++;
+                    if (c.receivedMessages.length > 0) {
+                        const lat = c.receivedMessages[0].latency;
+                        if (lat <= SLA_CUTOFF_MS) {
+                            runOntimeCount++;
                         } else {
-                            // Undelivered within the 2.0s window
                             runMissed400Count++;
-                            categorizeLatency(2500, c.instanceId, runBuckets);
-                            categorizeLatency(2500, c.instanceId, globalBuckets);
+                            categorizeLatency(lat, c.instanceId, runBuckets);
+                            categorizeLatency(lat, c.instanceId, globalBuckets);
                         }
+                    } else {
+                        // Undelivered within 2.0s
+                        runMissed400Count++;
+                        categorizeLatency(2500, c.instanceId, runBuckets);
+                        categorizeLatency(2500, c.instanceId, globalBuckets);
                     }
                 }
             }
 
-            const runMissedPercent = Number(((runMissed400Count / runTotalExpected) * 100).toFixed(2));
-            const runOntimePercent = Number(((runOntimeCount / runTotalExpected) * 100).toFixed(2));
+            const runMissedPercent = Number(((runMissed400Count / runTotalExpected) * 100).toFixed(3));
+            const runOntimePercent = Number(((runOntimeCount / runTotalExpected) * 100).toFixed(3));
 
-            console.log(`\n[Run ${runIdx} Results] Total Deliveries Expected: ${runTotalExpected}`);
-            console.log(`On-Time (<= 400ms): ${runOntimeCount} (${runOntimePercent}%) | Missed > 400ms: ${runMissed400Count} (${runMissedPercent}%)`);
-            console.log(`Arrival Distribution for Messages Missing 400ms (Run ${runIdx}):`);
-            printDistributionTable(runBuckets, runTotalExpected);
+            console.log(`\n[Run ${runIdx} Completed] Total Deliveries: ${runTotalExpected.toLocaleString()}`);
+            console.log(`On-Time (<= 400ms): ${runOntimeCount.toLocaleString()} (${runOntimePercent}%) | Missed > 400ms: ${runMissed400Count.toLocaleString()} (${runMissedPercent}%)`);
 
             runSummaries.push({
                 run: runIdx,
-                expected: runTotalExpected,
-                received: runTotalReceived,
+                totalExpected: runTotalExpected,
                 ontime: runOntimeCount,
                 missed400: runMissed400Count,
                 missedPercent: runMissedPercent,
@@ -314,56 +411,45 @@ async function run() {
             globalTotalDeliveries += runTotalExpected;
             globalTotalMissed += runMissed400Count;
 
-            // Teardown sockets and cooldown
-            console.log(`Tearing down ${clients.length} sockets...`);
+            printDistributionTable(`RUN ${runIdx} DISTRIBUTION`, runBuckets, runTotalExpected, runMissed400Count);
+
+            // Teardown clients for next run
             for (const c of clients) c.close();
-            await delay(4000);
+            clients.length = 0;
+            if (typeof global.gc === 'function') {
+                global.gc();
+            }
+            await delay(3000);
         }
 
-        console.log('\n========================================================================');
-        console.log('🏆 AGGREGATE 5-RUN DISTRIBUTION (Messages Missing 400ms across 2 Instances)');
-        console.log('========================================================================');
-        const globalMissedPercent = Number(((globalTotalMissed / globalTotalDeliveries) * 100).toFixed(2));
-        console.log(`Total Monitored Deliveries: ${globalTotalDeliveries}`);
-        console.log(`Total Missed 400ms: ${globalTotalMissed} (${globalMissedPercent}%)`);
-        printDistributionTable(globalBuckets, globalTotalDeliveries);
+        // ====================================================================
+        // FINAL GLOBAL SUMMARY ACROSS ALL 5 RUNS (625,000 DELIVERIES)
+        // ====================================================================
+        printDistributionTable('OVERALL 5-RUN AGGREGATE DISTRIBUTION (625,000 DELIVERIES)', globalBuckets, globalTotalDeliveries, globalTotalMissed);
 
-        // Save raw benchmark data
-        const outPath = path.resolve(ROOT_DIR, '../benchmarks/missed-400ms-distribution.json');
-        await fs.writeFile(outPath, JSON.stringify({
-            test: '2 instances x 5000 clients, 2s collection window, 5 runs',
-            totalDeliveries: globalTotalDeliveries,
+        // Save raw results to JSON file
+        const outputFile = path.resolve(ROOT_DIR, 'benchmarks/undelivered-distribution-original-workload.json');
+        await fs.mkdir(path.dirname(outputFile), { recursive: true });
+        await fs.writeFile(outputFile, JSON.stringify({
+            workload: '5 rooms × 5,000 clients × 25 messages/client',
+            totalRuns: TOTAL_RUNS,
+            totalExpectedDeliveries: globalTotalDeliveries,
             totalMissed400: globalTotalMissed,
-            missedPercent: globalMissedPercent,
-            runs: runSummaries,
             globalBuckets,
+            runSummaries,
         }, null, 2));
-        console.log(`\n💾 Raw distribution saved to: ${outPath}\n`);
+
+        console.log(`📁 Raw results saved to: ${outputFile}`);
 
     } finally {
-        console.log('[Teardown] Stopping server instances...');
+        console.log('\n[Teardown] Stopping Instance 1 and Instance 2...');
         await stopProcess(proc1);
         await stopProcess(proc2);
+        console.log('✅ Teardown complete.');
     }
-}
-
-function printDistributionTable(buckets, totalDeliveries) {
-    console.log('+----------------------+-------+------------+------------+---------------+');
-    console.log('| Latency Bucket       | Total | Instance 1 | Instance 2 | % of Total    |');
-    console.log('+----------------------+-------+------------+------------+---------------+');
-    for (const [range, data] of Object.entries(buckets)) {
-        const pct = totalDeliveries > 0 ? ((data.count / totalDeliveries) * 100).toFixed(3) : '0.000';
-        const rangePad = range.padEnd(20);
-        const countPad = String(data.count).padStart(5);
-        const inst1Pad = String(data.inst1).padStart(10);
-        const inst2Pad = String(data.inst2).padStart(10);
-        const pctPad = `${pct}%`.padStart(13);
-        console.log(`| ${rangePad} | ${countPad} | ${inst1Pad} | ${inst2Pad} | ${pctPad} |`);
-    }
-    console.log('+----------------------+-------+------------+------------+---------------+');
 }
 
 run().catch((err) => {
-    console.error('Benchmark execution error:', err);
+    console.error('❌ Benchmark failed:', err);
     process.exit(1);
 });

@@ -15,7 +15,7 @@ import {
 const ALLOWED_EMOJIS = ['🔥', '👏', '⚡', '❤️', '⚽', '🎯'];
 
 function sendJson(socket, payload) {
-    if(socket.readyState !== WebSocket.OPEN) return;
+    if (socket.readyState !== WebSocket.OPEN) return;
 
     socket.send(JSON.stringify(payload));
 }
@@ -31,7 +31,7 @@ function broadcastToAll(wss, payload) {
     }
     const message = JSON.stringify(stamped);
     for (const client of wss.clients) {
-        if(client.readyState !== WebSocket.OPEN) continue;
+        if (client.readyState !== WebSocket.OPEN) continue;
 
         client.send(message);
     }
@@ -156,7 +156,7 @@ export function attachWebSocketServer(server, {
 
     function localBroadcastToMatch(matchId, payload) {
         const subscribers = matchSubscribers.get(matchId);
-        if(!subscribers || subscribers.size === 0) return;
+        if (!subscribers || subscribers.size === 0) return;
 
         const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
         const seq = stamped.data?.sequence ?? stamped.data?.seq ?? stamped.sequence ?? stamped.seq;
@@ -165,8 +165,8 @@ export function attachWebSocketServer(server, {
         }
         const message = JSON.stringify(stamped);
 
-        for(const client of subscribers) {
-            if(client.readyState === WebSocket.OPEN) {
+        for (const client of subscribers) {
+            if (client.readyState === WebSocket.OPEN) {
                 // If this socket is actively replaying missed history for this match,
                 // queue live broadcasts so replay messages arrive first without out-of-order drops.
                 if (client.replayingMatches && client.replayingMatches.has(matchId)) {
@@ -193,13 +193,13 @@ export function attachWebSocketServer(server, {
         }
         const message = JSON.stringify(stamped);
         for (const client of wss.clients) {
-            if(client.readyState !== WebSocket.OPEN) continue;
+            if (client.readyState !== WebSocket.OPEN) continue;
             client.send(message);
         }
     }
 
     if (activeSub) {
-        activeSub.subscribe(GLOBAL_CHANNEL).catch(() => {});
+        activeSub.subscribe(GLOBAL_CHANNEL).catch(() => { });
         activeSub.on('message', (channel, raw) => {
             try {
                 const parsed = JSON.parse(raw);
@@ -230,14 +230,14 @@ export function attachWebSocketServer(server, {
                         localBroadcastToMatch(matchId, parsed);
                     }
                 }
-            } catch {}
+            } catch { }
         });
 
         activeSub.on('ready', () => {
             console.log('🔄 [Redis Sub] Redis connection ready/restored. Resubscribing active match channels...');
-            activeSub.subscribe(GLOBAL_CHANNEL).catch(() => {});
+            activeSub.subscribe(GLOBAL_CHANNEL).catch(() => { });
             for (const matchId of matchSubscribers.keys()) {
-                activeSub.subscribe(getMatchChannel(matchId)).catch(() => {});
+                activeSub.subscribe(getMatchChannel(matchId)).catch(() => { });
             }
         });
     }
@@ -327,10 +327,10 @@ export function attachWebSocketServer(server, {
     }
 
     function subscribe(matchId, socket) {
-        if(!matchSubscribers.has(matchId)) {
+        if (!matchSubscribers.has(matchId)) {
             matchSubscribers.set(matchId, new Set());
             if (activeSub) {
-                activeSub.subscribe(getMatchChannel(matchId)).catch(() => {});
+                activeSub.subscribe(getMatchChannel(matchId)).catch(() => { });
             }
         }
 
@@ -340,14 +340,14 @@ export function attachWebSocketServer(server, {
     function unsubscribe(matchId, socket) {
         const subscribers = matchSubscribers.get(matchId);
 
-        if(!subscribers) return;
+        if (!subscribers) return;
 
         subscribers.delete(socket);
 
-        if(subscribers.size === 0) {
+        if (subscribers.size === 0) {
             matchSubscribers.delete(matchId);
             if (activeSub) {
-                activeSub.unsubscribe(getMatchChannel(matchId)).catch(() => {});
+                activeSub.unsubscribe(getMatchChannel(matchId)).catch(() => { });
             }
         }
     }
@@ -359,7 +359,7 @@ export function attachWebSocketServer(server, {
         if (socket.activeClientReplay) {
             socket.activeClientReplay.cancelled = true;
         }
-        for(const matchId of socket.subscriptions) {
+        for (const matchId of socket.subscriptions) {
             unsubscribe(matchId, socket);
         }
     }
@@ -500,7 +500,7 @@ export function attachWebSocketServer(server, {
             return;
         }
 
-        if(message?.type === "subscribe") {
+        if (message?.type === "subscribe") {
             const matchId = parsePositiveInteger(message?.matchId);
             if (matchId === null) {
                 sendJson(socket, { type: 'error', message: 'Invalid matchId' });
@@ -678,7 +678,7 @@ export function attachWebSocketServer(server, {
             return;
         }
 
-        if(message?.type === "reaction") {
+        if (message?.type === "reaction") {
             const matchId = parsePositiveInteger(message?.matchId);
             if (matchId === null) {
                 sendJson(socket, { type: 'error', message: 'Invalid matchId' });
@@ -717,7 +717,7 @@ export function attachWebSocketServer(server, {
             }
         }
 
-        if(message?.type === "unsubscribe") {
+        if (message?.type === "unsubscribe") {
             const matchId = parsePositiveInteger(message?.matchId);
             if (matchId === null) {
                 sendJson(socket, { type: 'error', message: 'Invalid matchId' });
@@ -730,7 +730,7 @@ export function attachWebSocketServer(server, {
             return;
         }
 
-        if(message?.type === "ping") {
+        if (message?.type === "ping") {
             sendJson(socket, { type: 'pong' });
         }
     }
