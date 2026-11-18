@@ -4,6 +4,7 @@ import { matchIdParamSchema } from "../validation/matches.js";
 import { createCommentarySchema, listCommentaryQuerySchema } from "../validation/commentary.js";
 import { db } from "../db/db.js";
 import { commentary } from "../db/schema.js";
+import { ingestEvent } from "../ingestor/ingest-service.js";
 
 const MAX_LIMIT = 100;
 
@@ -55,18 +56,22 @@ commentaryRouter.post('/', async (req, res) => {
     }
 
     try {
-        const { minute, ...rest } = bodyResult.data;
-        const [result] = await db.insert(commentary).values({
+        const eventPayload = {
             matchId: paramsResult.data.id,
-            minute,
-            ...rest
-        }).returning();
+            ...bodyResult.data,
+        };
 
-        if(res.app.locals.broadcastCommentary) {
-            res.app.locals.broadcastCommentary(result.matchId, result);
+        const ingestResult = await ingestEvent(eventPayload, {
+            db,
+            broadcastCommentary: res.app.locals.broadcastCommentary,
+            broadcastScoreUpdate: res.app.locals.broadcastScoreUpdate,
+        });
+
+        if (ingestResult.isDuplicate) {
+            return res.status(200).json({ status: 'duplicate_ignored', sequence: ingestResult.sequence });
         }
 
-        res.status(201).json({ data: result });
+        res.status(201).json({ data: ingestResult.commentary });
     } catch (error) {
         console.error('Failed to create commentary:', error);
         res.status(500).json({ error: 'Failed to create commentary.' });
