@@ -347,15 +347,25 @@ export function attachWebSocketServer(server, {
         return await lookupPromise;
     }
 
-    function subscribe(matchId, socket) {
+    async function subscribe(matchId, socket) {
+        let subPromise = null;
         if (!matchSubscribers.has(matchId)) {
             matchSubscribers.set(matchId, new Set());
             if (activeSub) {
-                activeSub.subscribe(getMatchChannel(matchId)).catch(() => { });
+                const rawSub = activeSub.subscribe(getMatchChannel(matchId)).catch(() => { });
+                if (activeSub.status === 'ready') {
+                    subPromise = Promise.race([
+                        rawSub,
+                        new Promise((resolve) => setTimeout(resolve, 200)),
+                    ]);
+                }
             }
         }
 
         matchSubscribers.get(matchId).add(socket);
+        if (subPromise) {
+            await subPromise;
+        }
     }
 
     function unsubscribe(matchId, socket) {
@@ -600,15 +610,15 @@ export function attachWebSocketServer(server, {
                 ? message.lastSeq
                 : null;
 
-            subscribe(matchId, socket);
-            socket.subscriptions.add(matchId);
-
             if (lastSeq !== null) {
                 socket.replayingMatches = socket.replayingMatches || new Map();
                 if (!socket.replayingMatches.has(matchId)) {
                     socket.replayingMatches.set(matchId, []);
                 }
             }
+
+            await subscribe(matchId, socket);
+            socket.subscriptions.add(matchId);
 
             sendJson(socket, { type: 'subscribed', matchId });
 
