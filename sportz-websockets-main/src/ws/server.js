@@ -3,9 +3,12 @@ import {
     wsArcjet,
     isLocalhostIp,
     getClientIp,
+    isTrustProxyEnabled,
+    isDebugIpEnabled,
     buildProtectOptions,
     logArcjetDecisionIfNeeded,
     logArcjetError,
+    logDebugIpIfEnabled,
     arcjetMode,
 } from "../arcjet.js";
 import {
@@ -157,6 +160,7 @@ export function attachWebSocketServer(server, {
     enableRedis = true,
     wsArcjetClient = wsArcjet,
     trustProxy = undefined,
+    debugIp = undefined,
     arcjetLogger = console,
 } = {}) {
     const matchSubscribers = new Map();
@@ -872,8 +876,18 @@ export function attachWebSocketServer(server, {
             return;
         }
 
-        const clientIp = getClientIp(req, trustProxy);
-        if (wsArcjetClient && !isLocalhostIp(clientIp)) {
+        const effectiveTrustProxy = trustProxy !== undefined ? trustProxy : isTrustProxyEnabled();
+        const clientIp = getClientIp(req, effectiveTrustProxy);
+        logDebugIpIfEnabled({
+            scope: 'ws',
+            req,
+            clientIp,
+            trustProxy: effectiveTrustProxy,
+            debugIp: debugIp !== undefined ? debugIp : isDebugIpEnabled(),
+            logger: arcjetLogger,
+        });
+
+        if (wsArcjetClient && !isLocalhostIp(clientIp, process.env, arcjetLogger)) {
             try {
                 const protectOptions = buildProtectOptions(clientIp, arcjetLogger);
                 const decision = await wsArcjetClient.protect(req, protectOptions);

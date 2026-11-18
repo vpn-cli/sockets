@@ -24,7 +24,12 @@ import {
     getActiveClientReplaysCount,
     getLastQueryTiming,
 } from "./ws/server.js";
-import { securityMiddleware } from "./arcjet.js";
+import {
+    securityMiddleware,
+    debugIpMiddleware,
+    getArcjetErrorStats,
+    isBenchmarkBypassEnabled,
+} from "./arcjet.js";
 import { commentaryRouter } from "./routes/commentary.js";
 import { initRedis } from "./redis/redis.js";
 
@@ -43,6 +48,7 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 }));
 app.use(express.json());
+app.use(debugIpMiddleware());
 
 app.get('/', (req, res) => {
     res.send('Hello from Sportz Express server!');
@@ -107,6 +113,7 @@ app.get('/health', (req, res) => {
             heapUsedMb: Number((mem.heapUsed / (1024 * 1024)).toFixed(2)),
             heapTotalMb: Number((mem.heapTotal / (1024 * 1024)).toFixed(2)),
         },
+        arcjetErrors: getArcjetErrorStats(),
         uptime: process.uptime(),
     });
 });
@@ -139,7 +146,7 @@ app.locals.broadcastMatchCreated = broadcastMatchCreated;
 app.locals.broadcastCommentary = broadcastCommentary;
 app.locals.broadcastScoreUpdate = broadcastScoreUpdate;
 
-if (process.env.BENCHMARK_BYPASS_ARCJET) {
+if (isBenchmarkBypassEnabled()) {
     app.post('/benchmark/broadcast-all', (req, res) => {
         const payload = req.body && Object.keys(req.body).length > 0 ? req.body : {
             matchId: 1,

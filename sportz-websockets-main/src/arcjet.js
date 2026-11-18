@@ -17,8 +17,55 @@ export function isTrustProxyEnabled(env = process.env) {
     return env.TRUST_PROXY === 'true' || env.TRUST_PROXY === '1';
 }
 
+export function isDebugIpEnabled(env = process.env) {
+    return env.DEBUG_IP === '1' || env.DEBUG_IP === 'true';
+}
+
+export function isBenchmarkBypassRequested(env = process.env) {
+    return env.BENCHMARK_BYPASS_ARCJET === 'true' || env.BENCHMARK_BYPASS_ARCJET === '1';
+}
+
+export function isBenchmarkBypassEnabled(env = process.env, logger = console) {
+    if (!isBenchmarkBypassRequested(env)) {
+        return false;
+    }
+    if (env.NODE_ENV === 'production') {
+        logger.error(
+            '🚨 [Arcjet] BENCHMARK_BYPASS_ARCJET is refused when NODE_ENV=production; ignoring bypass flag.'
+        );
+        return false;
+    }
+    return true;
+}
+
 const isDev = isArcjetDevEnv();
 export const arcjetMode = resolveArcjetMode();
+
+let arcjetErrorCount = 0;
+let lastArcjetErrorAt = null;
+
+export function recordArcjetError(at = new Date().toISOString()) {
+    arcjetErrorCount += 1;
+    lastArcjetErrorAt = at;
+}
+
+export function getArcjetErrorStats() {
+    return {
+        count: arcjetErrorCount,
+        lastErrorAt: lastArcjetErrorAt,
+    };
+}
+
+export function resetArcjetErrorStats() {
+    arcjetErrorCount = 0;
+    lastArcjetErrorAt = null;
+}
+
+if (isBenchmarkBypassRequested(process.env) && process.env.NODE_ENV === 'production') {
+    console.error(
+        '🚨 [Arcjet] BENCHMARK_BYPASS_ARCJET is set while NODE_ENV=production; refusing and ignoring bypass flag.'
+    );
+}
 
 if (!arcjetKey) {
     console.warn("⚠️ [Arcjet] ARCJET_KEY is missing. Security middleware will run in bypass mode.");
@@ -64,8 +111,8 @@ export function getClientIp(req, trustProxy = isTrustProxyEnabled()) {
     return normalizeIp(req?.socket?.remoteAddress || req?.ip || null);
 }
 
-export function isLocalhostIp(ip) {
-    if (process.env.BENCHMARK_BYPASS_ARCJET === 'true' || process.env.BENCHMARK_BYPASS_ARCJET === '1') {
+export function isLocalhostIp(ip, env = process.env, logger = console) {
+    if (isBenchmarkBypassEnabled(env, logger)) {
         return true;
     }
     const normalized = normalizeIp(ip);
@@ -90,6 +137,77 @@ function extractSafePath(req) {
     if (typeof raw !== 'string' || !raw) return '/';
     const qIndex = raw.indexOf('?');
     return qIndex >= 0 ? raw.slice(0, qIndex) : raw;
+}
+
+function extractHeaderValue(headers, name) {
+    if (!headers || typeof headers !== 'object') return undefined;
+    const raw = headers[name];
+    if (Array.isArray(raw)) {
+        const joined = raw.join(', ').trim();
+        return joined ? sanitizeLogValue(joined) : undefined;
+    }
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+        return sanitizeLogValue(raw.trim());
+    }
+    return undefined;
+}
+
+const debugIpLoggedRequests = new WeakSet();
+
+export function logDebugIpIfEnabled({
+    scope,
+    req,
+    clientIp,
+    trustProxy = isTrustProxyEnabled(),
+    debugIp = isDebugIpEnabled(),
+    logger = console,
+}) {
+    if (!debugIp) return;
+    if (req && typeof req === 'object') {
+        if (debugIpLoggedRequests.has(req)) return;
+        debugIpLoggedRequests.add(req);
+    }
+
+    const xForwardedFor = extractHeaderValue(req?.headers, 'x-forwarded-for');
+    const trueClientIp = extractHeaderValue(req?.headers, 'true-client-ip');
+    const xRealIp = extractHeaderValue(req?.headers, 'x-real-ip');
+
+    const entry = {
+        scope,
+        method: req?.method || null,
+        path: extractSafePath(req),
+        trustProxy: Boolean(trustProxy),
+        xForwardedFor: xForwardedFor ?? null,
+        ...(trueClientIp !== undefined ? { trueClientIp } : {}),
+        ...(xRealIp !== undefined ? { xRealIp } : {}),
+        remoteAddress: req?.socket?.remoteAddress || null,
+        resolvedClientIp: clientIp || null,
+    };
+
+    logger.info(`🔍 [DEBUG_IP:${scope}]`, JSON.stringify(entry));
+}
+
+export function debugIpMiddleware({
+    trustProxy,
+    debugIp,
+    logger = console,
+} = {}) {
+    return (req, _res, next) => {
+        const enabled = debugIp !== undefined ? debugIp : isDebugIpEnabled();
+        if (enabled) {
+            const effectiveTrustProxy = trustProxy !== undefined ? trustProxy : isTrustProxyEnabled();
+            const clientIp = getClientIp(req, effectiveTrustProxy);
+            logDebugIpIfEnabled({
+                scope: 'http',
+                req,
+                clientIp,
+                trustProxy: effectiveTrustProxy,
+                debugIp: true,
+                logger,
+            });
+        }
+        next();
+    };
 }
 
 function summarizeReason(reason) {
@@ -162,6 +280,10 @@ export function logArcjetDecisionIfNeeded({
         return;
     }
 
+    if (isErrored || erroredRules.length > 0) {
+        recordArcjetError();
+    }
+
     const entry = {
         scope,
         mode,
@@ -192,6 +314,7 @@ export function logArcjetDecisionIfNeeded({
 }
 
 export function logArcjetError({ scope, req, clientIp, error, mode = arcjetMode, logger = console }) {
+    recordArcjetError();
     const entry = {
         scope,
         mode,
@@ -228,16 +351,29 @@ export const wsArcjet = arcjetKey ?
 export function securityMiddleware({
     client = httpArcjet,
     trustProxy,
+    debugIp,
     mode = arcjetMode,
     devMode = isDev,
+    env = process.env,
     logger = console,
 } = {}) {
     return async (req, res, next) => {
+        const effectiveTrustProxy = trustProxy !== undefined ? trustProxy : isTrustProxyEnabled(env);
+        const clientIp = getClientIp(req, effectiveTrustProxy);
+
+        logDebugIpIfEnabled({
+            scope: 'http',
+            req,
+            clientIp,
+            trustProxy: effectiveTrustProxy,
+            debugIp: debugIp !== undefined ? debugIp : isDebugIpEnabled(env),
+            logger,
+        });
+
         if (!client) return next();
 
-        const clientIp = getClientIp(req, trustProxy);
         // Bypass Arcjet rate limiting for local development and seed workers
-        if (isLocalhostIp(clientIp)) {
+        if (isLocalhostIp(clientIp, env, logger)) {
             return next();
         }
 
