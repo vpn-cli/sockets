@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import http from 'http';
 import { WebSocket } from 'ws';
 import Redis from 'ioredis';
-import { attachWebSocketServer } from '../src/ws/server.js';
+import { attachWebSocketServer, getGapReplayDbQueryCount, resetGapReplayDbQueryCount } from '../src/ws/server.js';
 import { db } from '../src/db/db.js';
 import { matches, commentary } from '../src/db/schema.js';
 import { ingestEvent } from '../src/ingestor/ingest-service.js';
@@ -514,5 +514,94 @@ describe('Reconnect Replay & Sequence Recovery Tests', () => {
         expect(client2Received).toContain(2); // Recovered seq 2 via replay!
         // All sequences 1, 2, 3 were received by Client 2!
         expect(new Set(client2Received)).toEqual(new Set([1, 2, 3]));
+    }, 45000);
+
+    it('gap-replay stampede: 1,000 clients detect the same gap at once -> count Postgres queries (should be ~1, not 1,000)', async () => {
+        // 1. Ingest 5 events into Postgres for testMatchId (seq 1..5)
+        for (let seq = 1; seq <= 5; seq++) {
+            await ingestEvent({
+                matchId: testMatchId,
+                provider: 'test-stampede',
+                providerEventId: `stampede_${seq}_${Date.now()}`,
+                minute: seq * 10,
+                message: `Stampede commentary seq ${seq}`,
+            }, {
+                db,
+                broadcastCommentary: () => {},
+            });
+        }
+
+        // 2. Reset query counter
+        resetGapReplayDbQueryCount();
+
+        // 3. Connect 1,000 client sockets to Instance A
+        const CLIENT_COUNT = 1000;
+        const BATCH_SIZE = 100;
+        const clients = [];
+
+        for (let i = 0; i < CLIENT_COUNT; i += BATCH_SIZE) {
+            const batch = [];
+            const limit = Math.min(i + BATCH_SIZE, CLIENT_COUNT);
+            for (let j = i; j < limit; j++) {
+                batch.push(connectWs(wsUrlA).then((c) => {
+                    clients.push(c);
+                    return c;
+                }));
+            }
+            await Promise.all(batch);
+            if (limit < CLIENT_COUNT) {
+                await new Promise((r) => setTimeout(r, 15));
+            }
+        }
+
+        expect(clients.length).toBe(CLIENT_COUNT);
+
+        // 4. All 1,000 clients request replay simultaneously for (testMatchId, lastSeq: 2)
+        const replayPromises = clients.map((client) => {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Timed out waiting for replay_events'));
+                }, 15000);
+
+                const onMsg = (raw) => {
+                    try {
+                        const msg = JSON.parse(raw.toString());
+                        if (msg.type === 'replay_events') {
+                            client.off('message', onMsg);
+                            clearTimeout(timeout);
+                            resolve(msg);
+                        }
+                    } catch {}
+                };
+                client.on('message', onMsg);
+                client.send(JSON.stringify({
+                    type: 'replay',
+                    matchId: testMatchId,
+                    lastSeq: 2,
+                }));
+            });
+        });
+
+        const results = await Promise.all(replayPromises);
+
+        // 5. Verify all 1,000 received the replay events (seq 3, 4, 5 -> 3 events)
+        expect(results.length).toBe(CLIENT_COUNT);
+        for (const res of results) {
+            expect(res.matchId).toBe(testMatchId);
+            expect(res.count).toBe(3);
+            expect(res.events.map((e) => e.sequence)).toEqual([3, 4, 5]);
+        }
+
+        // 6. Verify Postgres query count: deduped to ~1 query, NOT 1,000!
+        const firedQueries = getGapReplayDbQueryCount();
+        console.log(`\n✅ Gap-Replay Stampede: 1,000 simultaneous clients fired ${firedQueries} Postgres queries`);
+        expect(firedQueries).toBeGreaterThanOrEqual(1);
+        expect(firedQueries).toBeLessThanOrEqual(2); // In-flight coalescing ensures ~1 query
+
+        // 7. Cleanup clients with terminate
+        for (const c of clients) {
+            try { c.terminate(); } catch {}
+        }
+        clients.length = 0;
     }, 45000);
 });

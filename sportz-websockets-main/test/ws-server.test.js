@@ -1318,5 +1318,73 @@ describe('WebSocket Server Integration Tests', () => {
             const rateLimitErr = await awaitMessage(client1, 'error');
             expect(rateLimitErr.code).toBe('rate_limited');
         });
+
+        it('caps concurrent client replays per instance when limit is reached', async () => {
+            const [finished] = await db.insert(matches).values({
+                sport: 'football',
+                homeTeam: 'Arsenal',
+                awayTeam: 'Chelsea',
+                status: 'finished',
+                homeScore: 2,
+                awayScore: 1,
+            }).returning();
+            const finishedMatchId = finished.id;
+
+            for (let i = 1; i <= 3; i++) {
+                await db.insert(commentary).values({
+                    matchId: finishedMatchId,
+                    minute: i * 15,
+                    sequence: i,
+                    period: 'regular',
+                    type: 'highlight',
+                    message: `Event ${i}`,
+                });
+            }
+
+            // Create a server with maxConcurrentClientReplays: 1
+            const capServer = http.createServer();
+            attachWebSocketServer(capServer, {
+                heartbeatMs: 30000,
+                knownMatchIds: [finishedMatchId],
+                maxConcurrentClientReplays: 1,
+            });
+            await new Promise((resolve) => capServer.listen(0, '127.0.0.1', resolve));
+            const capWsUrl = `ws://127.0.0.1:${capServer.address().port}/ws`;
+
+            const clientA = await connectWs(capWsUrl);
+            const clientB = await connectWs(capWsUrl);
+            await awaitMessage(clientA, 'welcome');
+            await awaitMessage(clientB, 'welcome');
+
+            // 1. Client A starts a 1x replay (which takes ~300ms)
+            clientA.send(JSON.stringify({
+                type: 'client_replay',
+                matchId: finishedMatchId,
+                speed: '1x',
+            }));
+            const startedA = await awaitMessage(clientA, 'client_replay_started');
+            expect(startedA.matchId).toBe(finishedMatchId);
+
+            // 2. Client B immediately attempts replay while Client A is active
+            clientB.send(JSON.stringify({
+                type: 'client_replay',
+                matchId: finishedMatchId,
+                speed: '1x',
+            }));
+            const limitErr = await awaitMessage(clientB, 'error');
+            expect(limitErr.code).toBe('replay_concurrency_limit');
+            expect(limitErr.message).toContain('Server concurrent replay limit reached (1)');
+
+            // 3. Client A completes successfully
+            const completedA = await awaitMessage(clientA, 'client_replay_completed');
+            expect(completedA.totalEvents).toBe(3);
+
+            // Cleanup
+            clientA.close();
+            clientB.close();
+            await new Promise((resolve) => capServer.close(resolve));
+            await db.delete(commentary).where(eq(commentary.matchId, finishedMatchId));
+            await db.delete(matches).where(eq(matches.id, finishedMatchId));
+        });
     });
 });

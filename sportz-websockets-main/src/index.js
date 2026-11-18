@@ -10,8 +10,20 @@ try {
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
+import { monitorEventLoopDelay } from 'perf_hooks';
+
+const eventLoopMonitor = monitorEventLoopDelay({ resolution: 10 });
+eventLoopMonitor.enable();
 import { matchRouter } from "./routes/matches.js";
-import { attachWebSocketServer, getCheckMatchExistsQueryCount, resetCheckMatchExistsQueryCount, getLastQueryTiming } from "./ws/server.js";
+import {
+    attachWebSocketServer,
+    getCheckMatchExistsQueryCount,
+    resetCheckMatchExistsQueryCount,
+    getGapReplayDbQueryCount,
+    resetGapReplayDbQueryCount,
+    getActiveClientReplaysCount,
+    getLastQueryTiming,
+} from "./ws/server.js";
 import { securityMiddleware } from "./arcjet.js";
 import { commentaryRouter } from "./routes/commentary.js";
 import { initRedis } from "./redis/redis.js";
@@ -70,6 +82,7 @@ app.get('/health', (req, res) => {
 
     if (req.query.resetQueries === '1') {
         resetCheckMatchExistsQueryCount();
+        resetGapReplayDbQueryCount();
     }
     if (typeof global.gc === 'function' && req.query.gc === '1') {
         global.gc();
@@ -80,13 +93,35 @@ app.get('/health', (req, res) => {
         timestamp: new Date().toISOString(),
         cpuPercent,
         dbQueriesFired: getCheckMatchExistsQueryCount(),
+        gapReplayDbQueriesFired: getGapReplayDbQueryCount(),
+        activeClientReplays: getActiveClientReplaysCount(),
         lastQueryDurationMs: getLastQueryTiming().queryDurationMs,
+        eventLoopDelay: {
+            maxMs: Number((eventLoopMonitor.max / 1e6).toFixed(2)),
+            p99Ms: Number((eventLoopMonitor.percentile(99) / 1e6).toFixed(2)),
+            p50Ms: Number((eventLoopMonitor.percentile(50) / 1e6).toFixed(2)),
+            meanMs: Number((eventLoopMonitor.mean / 1e6).toFixed(2)),
+        },
         memory: {
             rssMb: Number((mem.rss / (1024 * 1024)).toFixed(2)),
             heapUsedMb: Number((mem.heapUsed / (1024 * 1024)).toFixed(2)),
             heapTotalMb: Number((mem.heapTotal / (1024 * 1024)).toFixed(2)),
         },
         uptime: process.uptime(),
+    });
+});
+
+app.get('/event-loop-stats', (req, res) => {
+    if (req.query.reset === '1') {
+        eventLoopMonitor.reset();
+    }
+    res.json({
+        minMs: Number((eventLoopMonitor.min / 1e6).toFixed(2)),
+        maxMs: Number((eventLoopMonitor.max / 1e6).toFixed(2)),
+        meanMs: Number((eventLoopMonitor.mean / 1e6).toFixed(2)),
+        p50Ms: Number((eventLoopMonitor.percentile(50) / 1e6).toFixed(2)),
+        p95Ms: Number((eventLoopMonitor.percentile(95) / 1e6).toFixed(2)),
+        p99Ms: Number((eventLoopMonitor.percentile(99) / 1e6).toFixed(2)),
     });
 });
 

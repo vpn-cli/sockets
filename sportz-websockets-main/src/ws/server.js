@@ -49,6 +49,8 @@ function parsePositiveInteger(val) {
 }
 
 let checkMatchExistsQueryCount = 0;
+let gapReplayDbQueryCount = 0;
+let activeClientReplaysCount = 0;
 let lastQueryTiming = { queryDurationMs: 0 };
 
 export function getLastQueryTiming() {
@@ -61,6 +63,22 @@ export function getCheckMatchExistsQueryCount() {
 
 export function resetCheckMatchExistsQueryCount() {
     checkMatchExistsQueryCount = 0;
+}
+
+export function getGapReplayDbQueryCount() {
+    return gapReplayDbQueryCount;
+}
+
+export function resetGapReplayDbQueryCount() {
+    gapReplayDbQueryCount = 0;
+}
+
+export function getActiveClientReplaysCount() {
+    return activeClientReplaysCount;
+}
+
+export function resetActiveClientReplaysCount() {
+    activeClientReplaysCount = 0;
 }
 
 export async function syncReactionDeltas({
@@ -123,6 +141,7 @@ export async function syncReactionDeltas({
 export function attachWebSocketServer(server, {
     heartbeatMs = 30000,
     maxSubscriptionsPerSocket = 50,
+    maxConcurrentClientReplays = Number(process.env.MAX_CONCURRENT_CLIENT_REPLAYS || 5),
     knownMatchIds = null,
     matchExists = null,
     redisPub = null,
@@ -133,6 +152,8 @@ export function attachWebSocketServer(server, {
     const matchReactions = new Map();
     const localReactionDeltas = new Map();
     const inFlightMatchLookups = new Map();
+    const inFlightReplayQueries = new Map();
+    const recentReplayCache = new Map();
     const negativeMatchIdsSet = new Set();
     const matchEventBuffer = new Map();
     const recentlyBroadcastSeq = new Map();
@@ -358,6 +379,10 @@ export function attachWebSocketServer(server, {
         }
         if (socket.activeClientReplay) {
             socket.activeClientReplay.cancelled = true;
+            if (typeof socket.activeClientReplay.decrementActive === 'function') {
+                socket.activeClientReplay.decrementActive();
+            }
+            socket.activeClientReplay = null;
         }
         for (const matchId of socket.subscriptions) {
             unsubscribe(matchId, socket);
@@ -395,50 +420,97 @@ export function attachWebSocketServer(server, {
 
         let replayedEvents = null;
         let isOversizedGap = false;
+        let snapshotData = null;
 
         try {
-            // 1. Fetch from Postgres if configured
+            // 1. Fetch from Postgres if configured (deduplicated across concurrent requests)
             if (process.env.DATABASE_URL) {
-                try {
-                    const { db } = await import("../db/db.js");
-                    const { commentary, matches } = await import("../db/schema.js");
-                    const { eq, gt, asc, desc, and } = await import("drizzle-orm");
+                const replayKey = `${matchId}:${lastSeq}`;
+                const cached = recentReplayCache.get(replayKey);
+                if (cached && Date.now() - cached.timestamp < 1000) {
+                    isOversizedGap = cached.data.isOversizedGap;
+                    replayedEvents = cached.data.replayedEvents;
+                    snapshotData = cached.data.snapshotData;
+                } else {
+                    let queryPromise = inFlightReplayQueries.get(replayKey);
+                    if (!queryPromise) {
+                        queryPromise = (async () => {
+                            gapReplayDbQueryCount++;
+                            const { db } = await import("../db/db.js");
+                            const { commentary, matches } = await import("../db/schema.js");
+                            const { eq, gt, asc, desc, and } = await import("drizzle-orm");
 
-                    // Fetch up to 201 events to detect if gap exceeds 200
-                    const rows = await db
-                        .select()
-                        .from(commentary)
-                        .where(and(eq(commentary.matchId, matchId), gt(commentary.sequence, lastSeq)))
-                        .orderBy(asc(commentary.sequence))
-                        .limit(201);
+                            // Fetch up to 201 events to detect if gap exceeds 200
+                            const rows = await db
+                                .select()
+                                .from(commentary)
+                                .where(and(eq(commentary.matchId, matchId), gt(commentary.sequence, lastSeq)))
+                                .orderBy(asc(commentary.sequence))
+                                .limit(201);
 
-                    if (rows.length > 200) {
-                        isOversizedGap = true;
-                        const [matchRow] = await db
-                            .select()
-                            .from(matches)
-                            .where(eq(matches.id, matchId))
-                            .limit(1);
+                            if (rows.length > 200) {
+                                const [matchRow] = await db
+                                    .select()
+                                    .from(matches)
+                                    .where(eq(matches.id, matchId))
+                                    .limit(1);
 
-                        const recent = await db
-                            .select()
-                            .from(commentary)
-                            .where(eq(commentary.matchId, matchId))
-                            .orderBy(desc(commentary.sequence))
-                            .limit(50);
+                                const recent = await db
+                                    .select()
+                                    .from(commentary)
+                                    .where(eq(commentary.matchId, matchId))
+                                    .orderBy(desc(commentary.sequence))
+                                    .limit(50);
 
-                        sendJson(socket, {
-                            type: 'snapshot',
-                            matchId,
-                            reason: 'gap_exceeded',
-                            match: matchRow || null,
-                            recentCommentary: recent.reverse(),
+                                return {
+                                    isOversizedGap: true,
+                                    replayedEvents: null,
+                                    snapshotData: {
+                                        match: matchRow || null,
+                                        recentCommentary: recent.reverse(),
+                                    },
+                                };
+                            } else {
+                                return {
+                                    isOversizedGap: false,
+                                    replayedEvents: rows,
+                                    snapshotData: null,
+                                };
+                            }
+                        })().then((result) => {
+                            recentReplayCache.set(replayKey, { timestamp: Date.now(), data: result });
+                            if (recentReplayCache.size > 200) {
+                                const now = Date.now();
+                                for (const [k, v] of recentReplayCache.entries()) {
+                                    if (now - v.timestamp > 2000) recentReplayCache.delete(k);
+                                }
+                            }
+                            return result;
+                        }).finally(() => {
+                            inFlightReplayQueries.delete(replayKey);
                         });
-                    } else {
-                        replayedEvents = rows;
+
+                        inFlightReplayQueries.set(replayKey, queryPromise);
                     }
-                } catch (err) {
-                    console.warn(`[Replay] DB query skipped/failed for match ${matchId}:`, err.message);
+
+                    try {
+                        const res = await queryPromise;
+                        isOversizedGap = res.isOversizedGap;
+                        replayedEvents = res.replayedEvents;
+                        snapshotData = res.snapshotData;
+                    } catch (err) {
+                        console.warn(`[Replay] DB query skipped/failed for match ${matchId}:`, err.message);
+                    }
+                }
+
+                if (isOversizedGap && snapshotData) {
+                    sendJson(socket, {
+                        type: 'snapshot',
+                        matchId,
+                        reason: 'gap_exceeded',
+                        match: snapshotData.match,
+                        recentCommentary: snapshotData.recentCommentary,
+                    });
                 }
             }
 
@@ -588,13 +660,38 @@ export function attachWebSocketServer(server, {
                 });
                 return;
             }
+
+            // Cap concurrent client replays per instance
+            if (activeClientReplaysCount >= maxConcurrentClientReplays) {
+                sendJson(socket, {
+                    type: 'error',
+                    code: 'replay_concurrency_limit',
+                    message: `Server concurrent replay limit reached (${maxConcurrentClientReplays}). Please retry shortly.`,
+                });
+                return;
+            }
+
             socket.lastClientReplayAt = now;
 
             // Cancel any in-flight replay on this socket
             if (socket.activeClientReplay) {
                 socket.activeClientReplay.cancelled = true;
+                if (typeof socket.activeClientReplay.decrementActive === 'function') {
+                    socket.activeClientReplay.decrementActive();
+                }
+                socket.activeClientReplay = null;
             }
-            const replayState = { cancelled: false };
+
+            let hasDecremented = false;
+            const decrementActive = () => {
+                if (!hasDecremented) {
+                    hasDecremented = true;
+                    activeClientReplaysCount = Math.max(0, activeClientReplaysCount - 1);
+                }
+            };
+
+            activeClientReplaysCount++;
+            const replayState = { cancelled: false, decrementActive };
             socket.activeClientReplay = replayState;
 
             const speed = message?.speed === '10x' ? '10x' : '1x';
@@ -671,6 +768,7 @@ export function attachWebSocketServer(server, {
                 console.error(`[Client Replay Error] Match ${matchId}:`, err);
                 sendJson(socket, { type: 'error', message: `Replay failed: ${err.message}` });
             } finally {
+                replayState.decrementActive();
                 if (socket.activeClientReplay === replayState) {
                     socket.activeClientReplay = null;
                 }
