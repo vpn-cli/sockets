@@ -3,7 +3,7 @@
  * 
  * Free Tier Documentation: https://www.football-data.org/documentation/api
  * Documented Free Limit: "10 requests/minute" (enforced via HTTP 429 and X-Requests-Available-Minute).
- * Free Tier Feature Set: Delayed scores and status changes; deep events (minute-by-minute bookings/goal details) require paid plans.
+ * Free Tier Feature Set: Scores and status updates via polling; deep match events (minute-by-minute bookings/goal assists) require paid plans.
  * Attribution Requirement: "Football data provided by football-data.org"
  */
 
