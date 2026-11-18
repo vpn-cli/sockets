@@ -24,16 +24,18 @@ describe('Audit & Cleanup Scripts (verified against local Docker Postgres 5433)'
     }
   });
 
-  it('flags suspected test rows while ignoring real football-data.org rows, and cleanup is dry-run by default', async () => {
-    // 1. Insert a realistic production match + commentary (must NOT be flagged)
-    const [realMatch] = await db
+  it('matches only test-specific fields (never numeric IDs), preserves real & seeded simulated matches, and defaults to dry-run', async () => {
+    // 1. Real production match that happens to have numeric id = 888 (must NOT be flagged!)
+    const [realMatch888] = await db
       .insert(matches)
       .values({
+        id: 888,
         sport: 'football',
         homeTeam: 'Manchester City FC',
         awayTeam: 'Aston Villa FC',
         status: 'live',
         startTime: new Date('2026-11-18T15:00:00Z'),
+        endTime: new Date('2026-11-18T17:00:00Z'),
         homeScore: 1,
         awayScore: 0,
         lastSeq: 1,
@@ -41,21 +43,49 @@ describe('Audit & Cleanup Scripts (verified against local Docker Postgres 5433)'
         providerMatchId: `real_match_${Date.now()}`,
       })
       .returning();
-    createdMatchIds.push(realMatch.id);
+    createdMatchIds.push(realMatch888.id);
 
     const [realCommentary] = await db
       .insert(commentary)
       .values({
-        matchId: realMatch.id,
+        matchId: realMatch888.id,
         sequence: 1,
         minute: 22,
         message: '[Event-based] SCORE UPDATE: Manchester City FC 1 - 0 Aston Villa FC.',
         provider: 'football-data.org',
-        providerEventId: `football-data.org_m${realMatch.id}_score_1_0_2026-11-18T15:22:00Z`,
+        providerEventId: `football-data.org_m${realMatch888.id}_score_1_0_2026-11-18T15:22:00Z`,
       })
       .returning();
 
-    // 2. Insert a unit-test fixture match (Arsenal vs Chelsea, null provider/startTime) + test commentary
+    // 2. Seeded simulated match (provider=null, BUT startTime & endTime are non-null, per seed.js / POST /matches)
+    // Even if it used Arsenal vs Chelsea, non-null startTime/endTime keeps it safe!
+    const [seededSimMatch] = await db
+      .insert(matches)
+      .values({
+        sport: 'football',
+        homeTeam: 'Arsenal',
+        awayTeam: 'Chelsea',
+        status: 'live',
+        startTime: new Date('2026-11-18T12:00:00Z'),
+        endTime: new Date('2026-11-18T13:45:00Z'),
+        homeScore: 2,
+        awayScore: 1,
+        lastSeq: 2,
+      })
+      .returning();
+    createdMatchIds.push(seededSimMatch.id);
+
+    const [seededSimCommentary] = await db
+      .insert(commentary)
+      .values({
+        matchId: seededSimMatch.id,
+        sequence: 1,
+        minute: 14,
+        message: 'Great through ball into the box.',
+      })
+      .returning();
+
+    // 3. Unit-test fixture match (auto-generated id, provider=null, startTime=null, endTime=null) + test commentary
     const [testFixtureMatch] = await db
       .insert(matches)
       .values({
@@ -82,32 +112,33 @@ describe('Audit & Cleanup Scripts (verified against local Docker Postgres 5433)'
       })
       .returning();
 
-    // 3. Insert a hardcoded match ID 888
-    await db
+    // 4. Explicit test-named match + fd_test_ commentary
+    const [testNamedMatch] = await db
       .insert(matches)
       .values({
-        id: 888,
         sport: 'football',
-        homeTeam: 'Alpha FC',
-        awayTeam: 'Beta FC',
+        homeTeam: 'Benchmark Team A',
+        awayTeam: 'Mock FC',
         status: 'live',
         homeScore: 0,
         awayScore: 0,
       })
-      .onConflictDoNothing();
-    createdMatchIds.push(888);
+      .returning();
+    createdMatchIds.push(testNamedMatch.id);
 
-    const [testCommentary888] = await db
+    const [testCommentary2] = await db
       .insert(commentary)
       .values({
-        matchId: 888,
+        matchId: testNamedMatch.id,
         sequence: 1,
         minute: 5,
-        message: 'Pre-pause event via Redis',
+        message: 'First attempt on target',
+        provider: 'football-data.org',
+        providerEventId: `fd_test_${Date.now()}_1`,
       })
       .returning();
 
-    // 4. Verify audit script (READ-ONLY) output contains ONLY counts & IDs and flags exact test IDs
+    // 5. Verify READ-ONLY audit script output flags ONLY test rows
     const auditRaw = execFileSync(process.execPath, [AUDIT_SCRIPT, '--json'], {
       cwd: WORKSPACE_ROOT,
       env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
@@ -117,14 +148,16 @@ describe('Audit & Cleanup Scripts (verified against local Docker Postgres 5433)'
 
     expect(auditJson.mode).toBe('READ_ONLY_AUDIT');
     expect(auditJson.suspectedMatches.ids).toContain(testFixtureMatch.id);
-    expect(auditJson.suspectedMatches.ids).toContain(888);
-    expect(auditJson.suspectedMatches.ids).not.toContain(realMatch.id);
+    expect(auditJson.suspectedMatches.ids).toContain(testNamedMatch.id);
+    expect(auditJson.suspectedMatches.ids).not.toContain(realMatch888.id);
+    expect(auditJson.suspectedMatches.ids).not.toContain(seededSimMatch.id);
 
     expect(auditJson.suspectedCommentary.ids).toContain(testCommentary1.id);
-    expect(auditJson.suspectedCommentary.ids).toContain(testCommentary888.id);
+    expect(auditJson.suspectedCommentary.ids).toContain(testCommentary2.id);
     expect(auditJson.suspectedCommentary.ids).not.toContain(realCommentary.id);
+    expect(auditJson.suspectedCommentary.ids).not.toContain(seededSimCommentary.id);
 
-    // 5. Verify cleanup script runs DRY-RUN by default and deletes NOTHING
+    // 6. Verify cleanup script defaults to DRY-RUN and deletes NOTHING
     const dryRunRaw = execFileSync(process.execPath, [CLEANUP_SCRIPT, '--json'], {
       cwd: WORKSPACE_ROOT,
       env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
@@ -132,14 +165,15 @@ describe('Audit & Cleanup Scripts (verified against local Docker Postgres 5433)'
     });
     const dryRunJson = JSON.parse(dryRunRaw);
     expect(dryRunJson.mode).toBe('DRY_RUN');
-    expect(dryRunJson.wouldDelete.matchIds).toContain(888);
     expect(dryRunJson.wouldDelete.matchIds).toContain(testFixtureMatch.id);
+    expect(dryRunJson.wouldDelete.matchIds).toContain(testNamedMatch.id);
+    expect(dryRunJson.wouldDelete.matchIds).not.toContain(realMatch888.id);
+    expect(dryRunJson.wouldDelete.matchIds).not.toContain(seededSimMatch.id);
 
-    // Rows must still exist after dry-run
     const stillThere = await db.select().from(matches).where(eq(matches.id, testFixtureMatch.id));
     expect(stillThere.length).toBe(1);
 
-    // 6. Verify cleanup script WITH --execute deletes ONLY the test rows and preserves the real row
+    // 7. Verify --execute deletes ONLY test rows and preserves both real (id 888) and seeded simulated matches
     const execRaw = execFileSync(process.execPath, [CLEANUP_SCRIPT, '--execute', '--json'], {
       cwd: WORKSPACE_ROOT,
       env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
@@ -147,20 +181,16 @@ describe('Audit & Cleanup Scripts (verified against local Docker Postgres 5433)'
     });
     const execJson = JSON.parse(execRaw);
     expect(execJson.mode).toBe('EXECUTED');
-    expect(execJson.deleted.matchIds).toContain(888);
     expect(execJson.deleted.matchIds).toContain(testFixtureMatch.id);
-    expect(execJson.deleted.matchIds).not.toContain(realMatch.id);
+    expect(execJson.deleted.matchIds).toContain(testNamedMatch.id);
+    expect(execJson.deleted.matchIds).not.toContain(realMatch888.id);
+    expect(execJson.deleted.matchIds).not.toContain(seededSimMatch.id);
 
-    // Real match + commentary survived untouched
-    const realMatchAfter = await db.select().from(matches).where(eq(matches.id, realMatch.id));
-    const realCommAfter = await db
-      .select()
-      .from(commentary)
-      .where(eq(commentary.id, realCommentary.id));
-    expect(realMatchAfter.length).toBe(1);
-    expect(realCommAfter.length).toBe(1);
+    expect((await db.select().from(matches).where(eq(matches.id, realMatch888.id))).length).toBe(1);
+    expect((await db.select().from(matches).where(eq(matches.id, seededSimMatch.id))).length).toBe(1);
+    expect((await db.select().from(commentary).where(eq(commentary.id, realCommentary.id))).length).toBe(1);
+    expect((await db.select().from(commentary).where(eq(commentary.id, seededSimCommentary.id))).length).toBe(1);
 
-    // Test rows are gone
     const client = await pool.connect();
     try {
       const afterReport = await findSuspectedTestData(client);

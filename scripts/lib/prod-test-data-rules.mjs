@@ -12,8 +12,6 @@ const requireFromBackend = createRequire(backendPkgJson);
 export const pg = requireFromBackend('pg');
 export const dotenv = requireFromBackend('dotenv');
 
-export const KNOWN_TEST_MATCH_IDS = [777, 888, 999999];
-
 export function loadDatabaseUrl() {
   if (!process.env.DATABASE_URL) {
     const envPath = path.resolve(__dirname, '../../sportz-websockets-main/.env');
@@ -72,17 +70,20 @@ export function parseCliArgs(argv = process.argv.slice(2)) {
 
 /**
  * SQL predicate for matches rows that look like test or benchmark leftovers.
- * Conservative against real football-data.org matches (which always have
- * provider='football-data.org', provider_match_id IS NOT NULL, and start_time IS NOT NULL).
+ *
+ * Matches ONLY on test-specific fields (never on numeric id ranges, since
+ * production matches.id is auto-numbered via serial).
+ *
+ * Safe against:
+ * - Real football-data.org matches (always have provider='football-data.org',
+ *   provider_match_id IS NOT NULL, and start_time IS NOT NULL).
+ * - Seeded simulated matches (seed.js -> POST /matches requires non-null
+ *   start_time and end_time via createMatchSchema, and uses different team pairs).
  */
 export const SUSPECTED_TEST_MATCHES_SQL = `
   SELECT
     id,
     CASE
-      WHEN id IN (777, 888, 999999)
-        OR id BETWEEN 888800 AND 898800
-        OR id BETWEEN 988800 AND 998800
-        THEN 'known_test_match_id'
       WHEN provider ILIKE 'test%'
         OR provider ILIKE 'mock%'
         OR provider ILIKE '%benchmark%'
@@ -97,6 +98,7 @@ export const SUSPECTED_TEST_MATCHES_SQL = `
       WHEN provider IS NULL
         AND provider_match_id IS NULL
         AND start_time IS NULL
+        AND end_time IS NULL
         AND sport = 'football'
         AND (
           (home_team = 'Arsenal' AND away_team = 'Chelsea')
@@ -109,10 +111,7 @@ export const SUSPECTED_TEST_MATCHES_SQL = `
     END AS match_reason
   FROM matches
   WHERE (
-    id IN (777, 888, 999999)
-    OR id BETWEEN 888800 AND 898800
-    OR id BETWEEN 988800 AND 998800
-    OR provider ILIKE 'test%'
+    provider ILIKE 'test%'
     OR provider ILIKE 'mock%'
     OR provider ILIKE '%benchmark%'
     OR provider ILIKE '%replay-test%'
@@ -125,6 +124,7 @@ export const SUSPECTED_TEST_MATCHES_SQL = `
       provider IS NULL
       AND provider_match_id IS NULL
       AND start_time IS NULL
+      AND end_time IS NULL
       AND sport = 'football'
       AND (
         (home_team = 'Arsenal' AND away_team = 'Chelsea')
@@ -139,6 +139,8 @@ export const SUSPECTED_TEST_MATCHES_SQL = `
 /**
  * SQL predicate for commentary rows that look like test or benchmark leftovers,
  * OR belong to a suspected test match ID passed as $1 (integer[]).
+ *
+ * Matches ONLY on test-specific fields (never hardcoded numeric match IDs).
  */
 export const SUSPECTED_TEST_COMMENTARY_SQL = `
   SELECT
@@ -147,10 +149,6 @@ export const SUSPECTED_TEST_COMMENTARY_SQL = `
     CASE
       WHEN match_id = ANY($1::int[])
         THEN 'belongs_to_suspected_test_match'
-      WHEN match_id IN (777, 888, 999999)
-        OR match_id BETWEEN 888800 AND 898800
-        OR match_id BETWEEN 988800 AND 998800
-        THEN 'known_test_match_id'
       WHEN provider ILIKE 'test%'
         OR provider ILIKE 'mock%'
         OR provider ILIKE '%benchmark%'
@@ -182,9 +180,6 @@ export const SUSPECTED_TEST_COMMENTARY_SQL = `
   FROM commentary
   WHERE (
     match_id = ANY($1::int[])
-    OR match_id IN (777, 888, 999999)
-    OR match_id BETWEEN 888800 AND 898800
-    OR match_id BETWEEN 988800 AND 998800
     OR provider ILIKE 'test%'
     OR provider ILIKE 'mock%'
     OR provider ILIKE '%benchmark%'
