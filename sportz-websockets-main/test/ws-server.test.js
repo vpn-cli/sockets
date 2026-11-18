@@ -5,6 +5,9 @@ import { attachWebSocketServer, syncReactionDeltas } from '../src/ws/server.js';
 import { getClientIp } from '../src/arcjet.js';
 import { getMatchReactionsKey } from '../src/redis/redis.js';
 import Redis from 'ioredis';
+import { db } from '../src/db/db.js';
+import { matches, commentary } from '../src/db/schema.js';
+import { eq } from 'drizzle-orm';
 
 describe('WebSocket Server Integration Tests', () => {
     let server;
@@ -1134,6 +1137,186 @@ describe('WebSocket Server Integration Tests', () => {
             await awaitMessage(client3, 'subscribed');
             const snap3 = await awaitMessage(client3, 'reaction_snapshot');
             expect(snap3.counts['🔥']).toBe(1);
+        });
+    });
+
+    describe('Per-Client Replay from Postgres with Rate Limiting', () => {
+        let server;
+        let wsUrl;
+        let handles;
+        let finishedMatchId;
+        let liveMatchId;
+        const testClients = new Set();
+
+        function connectWs(url) {
+            return new Promise((resolve, reject) => {
+                const client = new WebSocket(url);
+                client._messageQueue = [];
+                client._waiters = [];
+
+                client.on('message', (data) => {
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(data.toString());
+                    } catch {
+                        parsed = { raw: data.toString() };
+                    }
+                    const waiterIndex = client._waiters.findIndex((w) => !w.type || w.type === parsed.type);
+                    if (waiterIndex !== -1) {
+                        const [waiter] = client._waiters.splice(waiterIndex, 1);
+                        clearTimeout(waiter.timer);
+                        waiter.resolve(parsed);
+                    } else {
+                        client._messageQueue.push(parsed);
+                    }
+                });
+
+                client.on('open', () => {
+                    testClients.add(client);
+                    resolve(client);
+                });
+
+                client.on('error', reject);
+            });
+        }
+
+        function awaitMessage(client, expectedType, timeoutMs = 4000) {
+            return new Promise((resolve, reject) => {
+                const queuedIndex = client._messageQueue.findIndex((m) => !expectedType || m.type === expectedType);
+                if (queuedIndex !== -1) {
+                    const [msg] = client._messageQueue.splice(queuedIndex, 1);
+                    return resolve(msg);
+                }
+
+                const timer = setTimeout(() => {
+                    const idx = client._waiters.findIndex((w) => w.timer === timer);
+                    if (idx !== -1) client._waiters.splice(idx, 1);
+                    reject(new Error(`Timed out after ${timeoutMs}ms waiting for type: ${expectedType}`));
+                }, timeoutMs);
+
+                client._waiters.push({ type: expectedType, resolve, reject, timer });
+            });
+        }
+
+        beforeEach(async () => {
+            // 1. Create a finished match in Postgres
+            const [fm] = await db.insert(matches).values({
+                sport: 'football',
+                homeTeam: 'Bayern',
+                awayTeam: 'Dortmund',
+                status: 'finished',
+                homeScore: 3,
+                awayScore: 1,
+                lastSeq: 3,
+            }).returning();
+            finishedMatchId = fm.id;
+
+            // Commentary rows for finished match
+            await db.insert(commentary).values([
+                { matchId: finishedMatchId, sequence: 1, minute: 15, message: 'Bayern 1st goal' },
+                { matchId: finishedMatchId, sequence: 2, minute: 40, message: 'Dortmund equalizer' },
+                { matchId: finishedMatchId, sequence: 3, minute: 88, message: 'Bayern winner' },
+            ]);
+
+            // 2. Create a live match in Postgres
+            const [lm] = await db.insert(matches).values({
+                sport: 'football',
+                homeTeam: 'PSG',
+                awayTeam: 'Marseille',
+                status: 'live',
+                homeScore: 0,
+                awayScore: 0,
+                lastSeq: 0,
+            }).returning();
+            liveMatchId = lm.id;
+
+            server = http.createServer();
+            handles = attachWebSocketServer(server, {
+                heartbeatMs: 60000,
+                knownMatchIds: [finishedMatchId, liveMatchId],
+            });
+            await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+            wsUrl = `ws://127.0.0.1:${server.address().port}/ws`;
+        });
+
+        afterEach(async () => {
+            for (const c of testClients) {
+                try { c.terminate(); } catch {}
+            }
+            testClients.clear();
+            await new Promise((resolve) => server.close(resolve));
+
+            if (finishedMatchId) {
+                await db.delete(commentary).where(eq(commentary.matchId, finishedMatchId));
+                await db.delete(matches).where(eq(matches.id, finishedMatchId));
+            }
+            if (liveMatchId) {
+                await db.delete(commentary).where(eq(commentary.matchId, liveMatchId));
+                await db.delete(matches).where(eq(matches.id, liveMatchId));
+            }
+        });
+
+        it('streams finished match from Postgres at 10x speed to requesting client only, without changing global DATA_SOURCE, and enforces rate limit', async () => {
+            const originalDataSource = process.env.DATA_SOURCE;
+
+            const client1 = await connectWs(wsUrl);
+            const client2 = await connectWs(wsUrl);
+            await awaitMessage(client1, 'welcome');
+            await awaitMessage(client2, 'welcome');
+
+            // 1. Attempting replay on an in-play match fails with match_not_finished error
+            client1.send(JSON.stringify({
+                type: 'client_replay',
+                matchId: liveMatchId,
+                speed: '10x',
+            }));
+            const errNotFinished = await awaitMessage(client1, 'error');
+            expect(errNotFinished.code).toBe('match_not_finished');
+
+            // Reset rate limit timer on socket for next test step
+            // Wait 3.1s for cooldown or clear socket timestamp
+            await new Promise((r) => setTimeout(r, 3100));
+
+            // 2. Request replay on finished match at 10x speed
+            client1.send(JSON.stringify({
+                type: 'client_replay',
+                matchId: finishedMatchId,
+                speed: '10x',
+            }));
+
+            // Client 1 receives start notification
+            const startMsg = await awaitMessage(client1, 'client_replay_started');
+            expect(startMsg.matchId).toBe(finishedMatchId);
+            expect(startMsg.totalEvents).toBe(3);
+            expect(startMsg.speed).toBe('10x');
+
+            // Client 1 receives 3 commentary messages in order with isReplay: true
+            const comm1 = await awaitMessage(client1, 'commentary');
+            const comm2 = await awaitMessage(client1, 'commentary');
+            const comm3 = await awaitMessage(client1, 'commentary');
+            expect(comm1.isReplay).toBe(true);
+            expect(comm1.data.sequence).toBe(1);
+            expect(comm2.data.sequence).toBe(2);
+            expect(comm3.data.sequence).toBe(3);
+
+            // Client 1 receives completion notification
+            const compMsg = await awaitMessage(client1, 'client_replay_completed');
+            expect(compMsg.totalEvents).toBe(3);
+
+            // 3. Isolated to client 1: Client 2 receives 0 commentary messages
+            expect(client2._messageQueue.filter((m) => m.type === 'commentary').length).toBe(0);
+
+            // 4. Global DATA_SOURCE remains completely untouched
+            expect(process.env.DATA_SOURCE).toBe(originalDataSource);
+
+            // 5. Rate limiting: Client 1 immediately requests another replay without waiting 3s
+            client1.send(JSON.stringify({
+                type: 'client_replay',
+                matchId: finishedMatchId,
+                speed: '10x',
+            }));
+            const rateLimitErr = await awaitMessage(client1, 'error');
+            expect(rateLimitErr.code).toBe('rate_limited');
         });
     });
 });

@@ -16,6 +16,7 @@ interface UseWebSocketReturn {
   subscribeMatch: (matchId: string | number) => void;
   unsubscribeMatch: (matchId: string | number) => void;
   sendReaction: (matchId: string | number, emoji: string) => void;
+  requestClientReplay: (matchId: string | number, speed?: '1x' | '10x') => void;
   disconnect: () => void;
 }
 
@@ -241,6 +242,14 @@ export const useWebSocket = (
     });
   }, [sendMessage]);
 
+  const requestClientReplay = useCallback((matchId: string | number, speed: '1x' | '10x' = '1x') => {
+    sendMessage({
+      type: 'client_replay',
+      matchId: Number(matchId),
+      speed,
+    });
+  }, [sendMessage]);
+
   // Public disconnect method
   const disconnect = useCallback(() => {
     isIntentionalClose.current = true;
@@ -273,5 +282,5 @@ export const useWebSocket = (
     };
   }, [cleanupSocket]);
 
-  return { status, connectGlobal, subscribeMatch, unsubscribeMatch, sendReaction, disconnect };
+  return { status, connectGlobal, subscribeMatch, unsubscribeMatch, sendReaction, requestClientReplay, disconnect };
 };

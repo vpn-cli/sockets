@@ -356,6 +356,9 @@ export function attachWebSocketServer(server, {
         if (socket.replayingMatches) {
             socket.replayingMatches.clear();
         }
+        if (socket.activeClientReplay) {
+            socket.activeClientReplay.cancelled = true;
+        }
         for(const matchId of socket.subscriptions) {
             unsubscribe(matchId, socket);
         }
@@ -564,6 +567,113 @@ export function attachWebSocketServer(server, {
 
             if (lastSeq !== null) {
                 await performReplayGap(socket, matchId, lastSeq);
+            }
+            return;
+        }
+
+        if (message?.type === "client_replay") {
+            const matchId = parsePositiveInteger(message?.matchId);
+            if (matchId === null) {
+                sendJson(socket, { type: 'error', message: 'Invalid matchId' });
+                return;
+            }
+
+            // Rate-limit replay requests per socket (minimum 3 seconds between requests)
+            const now = Date.now();
+            if (socket.lastClientReplayAt && now - socket.lastClientReplayAt < 3000) {
+                sendJson(socket, {
+                    type: 'error',
+                    code: 'rate_limited',
+                    message: 'Rate limit exceeded: please wait 3 seconds between replay requests',
+                });
+                return;
+            }
+            socket.lastClientReplayAt = now;
+
+            // Cancel any in-flight replay on this socket
+            if (socket.activeClientReplay) {
+                socket.activeClientReplay.cancelled = true;
+            }
+            const replayState = { cancelled: false };
+            socket.activeClientReplay = replayState;
+
+            const speed = message?.speed === '10x' ? '10x' : '1x';
+            const intervalMs = speed === '10x' ? 20 : 100;
+
+            try {
+                if (!process.env.DATABASE_URL) {
+                    sendJson(socket, { type: 'error', message: 'Database not configured for replay' });
+                    return;
+                }
+
+                const { db } = await import("../db/db.js");
+                const { matches, commentary } = await import("../db/schema.js");
+                const { eq, asc } = await import("drizzle-orm");
+
+                const [matchRow] = await db
+                    .select()
+                    .from(matches)
+                    .where(eq(matches.id, matchId))
+                    .limit(1);
+
+                if (!matchRow) {
+                    sendJson(socket, { type: 'error', code: 'match_not_found', message: `Match ${matchId} not found` });
+                    return;
+                }
+
+                if (matchRow.status !== 'finished') {
+                    sendJson(socket, {
+                        type: 'error',
+                        code: 'match_not_finished',
+                        message: `Cannot replay match ${matchId}: only finished matches can be replayed (current status: ${matchRow.status})`,
+                    });
+                    return;
+                }
+
+                const rows = await db
+                    .select()
+                    .from(commentary)
+                    .where(eq(commentary.matchId, matchId))
+                    .orderBy(asc(commentary.sequence));
+
+                sendJson(socket, {
+                    type: 'client_replay_started',
+                    matchId,
+                    speed,
+                    totalEvents: rows.length,
+                });
+
+                // Stream directly to THIS socket alone without touching global DATA_SOURCE
+                for (const row of rows) {
+                    if (socket.readyState !== 1 || replayState.cancelled) {
+                        break;
+                    }
+                    sendJson(socket, {
+                        type: 'commentary',
+                        matchId,
+                        data: row,
+                        isReplay: true,
+                        speed,
+                    });
+                    if (intervalMs > 0) {
+                        await new Promise((r) => setTimeout(r, intervalMs));
+                    }
+                }
+
+                if (socket.readyState === 1 && !replayState.cancelled) {
+                    sendJson(socket, {
+                        type: 'client_replay_completed',
+                        matchId,
+                        totalEvents: rows.length,
+                    });
+                }
+            } catch (err) {
+                console.error(`[Client Replay Error] Match ${matchId}:`, err);
+                sendJson(socket, { type: 'error', message: `Replay failed: ${err.message}` });
+            } finally {
+                if (socket.activeClientReplay === replayState) {
+                    socket.activeClientReplay = null;
+                }
             }
             return;
         }
