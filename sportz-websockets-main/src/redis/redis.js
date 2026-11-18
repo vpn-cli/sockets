@@ -33,6 +33,7 @@ export async function initRedis({ redisUrl = process.env.REDIS_URL, retryCount =
     try {
         pubClient = new Redis(redisUrl, {
             maxRetriesPerRequest: 1,
+            enableOfflineQueue: false,
             retryStrategy: (times) => {
                 if (retryCount !== null && times > retryCount) {
                     console.error(`🚨 [REDIS FAILURE] Reconnect failed after ${retryCount} attempts. Stopping reconnects.`);

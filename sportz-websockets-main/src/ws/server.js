@@ -135,6 +135,21 @@ export function attachWebSocketServer(server, {
     const inFlightMatchLookups = new Map();
     const negativeMatchIdsSet = new Set();
     const matchEventBuffer = new Map();
+    const recentlyBroadcastSeq = new Map();
+
+    function recordLocalSeq(matchId, seq) {
+        if (seq === undefined || seq === null) return;
+        let set = recentlyBroadcastSeq.get(matchId);
+        if (!set) {
+            set = new Set();
+            recentlyBroadcastSeq.set(matchId, set);
+        }
+        set.add(seq);
+        if (set.size > 500) {
+            const first = set.values().next().value;
+            set.delete(first);
+        }
+    }
 
     const activePub = enableRedis ? (redisPub || getPublisher()) : null;
     const activeSub = enableRedis ? (redisSub || getSubscriber()) : null;
@@ -144,6 +159,10 @@ export function attachWebSocketServer(server, {
         if(!subscribers || subscribers.size === 0) return;
 
         const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
+        const seq = stamped.data?.sequence ?? stamped.data?.seq ?? stamped.sequence ?? stamped.seq;
+        if (seq !== undefined && seq !== null) {
+            recordLocalSeq(matchId, seq);
+        }
         const message = JSON.stringify(stamped);
 
         for(const client of subscribers) {
@@ -161,6 +180,10 @@ export function attachWebSocketServer(server, {
 
     function localBroadcastToAll(payload) {
         const stamped = payload.serverTimestamp ? payload : { ...payload, serverTimestamp: Date.now() };
+        const seq = stamped.data?.seq ?? stamped.data?.sequence ?? stamped.seq ?? stamped.sequence;
+        if (seq !== undefined && seq !== null && stamped.matchId) {
+            recordLocalSeq(Number(stamped.matchId), seq);
+        }
         if (process.env.BENCHMARK_LOOP_STRINGIFY === '1' || process.env.BENCHMARK_LOOP_STRINGIFY === 'true') {
             for (const client of wss.clients) {
                 if (client.readyState !== WebSocket.OPEN) continue;
@@ -184,10 +207,26 @@ export function attachWebSocketServer(server, {
                     if (parsed.type === 'match_created' && parsed.data?.id) {
                         knownMatchIdsSet.add(Number(parsed.data.id));
                     }
+                    const globalSeq = parsed.data?.seq ?? parsed.data?.sequence ?? parsed.seq ?? parsed.sequence;
+                    if (globalSeq !== undefined && globalSeq !== null && parsed.matchId) {
+                        const set = recentlyBroadcastSeq.get(Number(parsed.matchId));
+                        if (set && set.has(globalSeq)) {
+                            // Already broadcast locally by this instance during degraded mode
+                            return;
+                        }
+                    }
                     localBroadcastToAll(parsed);
                 } else if (channel.startsWith('sportz:match:')) {
                     const matchId = Number(channel.split(':')[2]);
                     if (matchId) {
+                        const seq = parsed.data?.sequence ?? parsed.data?.seq ?? parsed.sequence ?? parsed.seq;
+                        if (seq !== undefined && seq !== null) {
+                            const set = recentlyBroadcastSeq.get(matchId);
+                            if (set && set.has(seq)) {
+                                // Already broadcast locally by this instance during degraded mode
+                                return;
+                            }
+                        }
                         localBroadcastToMatch(matchId, parsed);
                     }
                 }
