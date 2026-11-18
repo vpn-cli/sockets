@@ -3,11 +3,14 @@ import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import Redis from 'ioredis';
+import { configureBenchmarkDatabase } from '../src/db/guard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
+const benchmarkDbInfo = configureBenchmarkDatabase();
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+console.log(`[Benchmark DB] Host: ${benchmarkDbInfo.host} (guarded local-by-default)`);
 
 function delay(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -52,6 +55,8 @@ function spawnServer(port, extraEnv = {}) {
         env: {
             ...process.env,
             PORT: String(port),
+            DATABASE_URL: process.env.DATABASE_URL,
+            SPORTZ_BENCHMARK: '1',
             BENCHMARK_BYPASS_ARCJET: '1',
             AUTO_SEED: 'false',
             ...extraEnv

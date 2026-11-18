@@ -2,6 +2,10 @@ import { WebSocket } from 'ws';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { configureBenchmarkDatabase } from '../src/db/guard.js';
+
+const benchmarkDbInfo = configureBenchmarkDatabase();
+console.log(`[Benchmark DB] Host: ${benchmarkDbInfo.host} (guarded local-by-default)`);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

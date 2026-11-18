@@ -3,6 +3,10 @@ import { WebSocket } from 'ws';
 import Redis from 'ioredis';
 import { execSync } from 'child_process';
 import { attachWebSocketServer } from '../src/ws/server.js';
+import { configureBenchmarkDatabase } from '../src/db/guard.js';
+
+const benchmarkDbInfo = configureBenchmarkDatabase();
+console.log(`[Benchmark DB] Host: ${benchmarkDbInfo.host} (guarded local-by-default)`);
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const MATCH_ID = 888;

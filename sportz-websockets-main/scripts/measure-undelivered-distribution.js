@@ -4,12 +4,15 @@ import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { configureBenchmarkDatabase } from '../src/db/guard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
+const benchmarkDbInfo = configureBenchmarkDatabase();
 dotenv.config({ path: path.resolve(ROOT_DIR, '.env') });
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+console.log(`[Benchmark DB] Host: ${benchmarkDbInfo.host} (guarded local-by-default)`);
 
 const INSTANCES = [
     { id: 1, port: 8000, ws: 'ws://127.0.0.1:8000/ws', api: 'http://127.0.0.1:8000' },
@@ -35,6 +38,8 @@ function spawnServer(port) {
             ...process.env,
             PORT: String(port),
             REDIS_URL,
+            DATABASE_URL: process.env.DATABASE_URL,
+            SPORTZ_BENCHMARK: '1',
             BENCHMARK_BYPASS_ARCJET: '1',
             AUTO_SEED: 'false',
         },
