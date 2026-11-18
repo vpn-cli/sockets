@@ -196,3 +196,14 @@ In accordance with review directives:
    - **Degradation Mechanism**: If Redis disconnects mid-run (`pubClient.status !== 'ready'`), `broadcastToMatch` and `broadcastToAllClients` log a loud warning (`🚨 [REDIS FAILURE] ... Degrading to local-only broadcast.`) and immediately fall back to local in-memory broadcast. Local clients connected to the instance continue receiving commentary, score updates, and reactions without drops or unhandled rejections.
    - **Reconnection with Backoff**: Client uses exponential/linear backoff (`retryStrategy`). Upon reconnection (`ready` event), `subClient` automatically re-synchronizes subscriptions to `GLOBAL_CHANNEL` and all currently active match rooms, seamlessly restoring cluster mode.
    - **Automated Verification**: Verified via Vitest integration test `Phase 2 Correctness 6`, which uses real Redis `CLIENT KILL` mid-run to sever connections, asserts local degradation during outage, and asserts cross-instance pub/sub recovery upon reconnection.
+
+4. **Docker Pause Mechanics & Sequence Deduplication**:
+   - **Socket Buffer vs. Offline Queue**: During `docker pause`, the TCP connection remains active and the `ioredis` driver status remains `"ready"`. Writes are dispatched directly to the OS kernel TCP socket buffer rather than being queued in ioredis's offline queue. When Redis is unpaused, Redis reads the buffered bytes and broadcasts the publish events.
+   - **Sequence Deduplication (`recentlyBroadcastSeq`)**:
+     - **Size Limit**: 500 sequence numbers per match room.
+     - **Expiry Policy**: Bounded FIFO capacity eviction (oldest entry deleted upon reaching 500 items).
+     - Prevents duplicate delivery of events that were already broadcast locally during degraded mode.
+     - **Delivery Semantics**: No duplicates observed in the pause test.
+
+5. **Known Limitations**:
+   - **Reaction Counter Dropped Reply Over-Counting**: If Redis successfully executes `HINCRBY` but the network reply is dropped or severed before reaching the Node server, the server retains the pending delta and re-applies it upon reconnection, causing potential over-counting of that delta in network drop edge cases.

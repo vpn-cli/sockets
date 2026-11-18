@@ -354,7 +354,34 @@ Sportz comes with a built-in **Event Simulator Playground**:
 - **Arcjet Bot & DDoS Protection**: Analyzes incoming client request signatures and enforces rate limits before hitting sensitive database queries.
 - **WebSocket Upgrade Verification**: Inspects upgrade requests at the HTTP server level to reject unauthorized or abusive connection spikes.
 - **Connection Isolation**: The frontend cleans up stale listeners on superseded WebSocket instances, preventing orphaned socket event loops and UI jitter.
-- **Safe Fallbacks**: If the backend connection drops, the UI retains optimistic data, clearly reflects status via color-coded badges, and reconnects automatically using exponential backoff.
+- **Safe Fallbacks & Degraded Mode**: If Redis disconnects mid-run, instances log loud degradation warnings and fall back to local-only broadcast without dropping messages on local sockets. When Redis reconnects, cluster subscriptions and reaction deltas automatically re-sync.
+- **Client Gap Detection**: If a client receives sequence $N$ while its last seen sequence was $< N - 1$, the client automatically requests gap replay from its last contiguous sequence over its open socket without reconnecting.
+- **Per-Client Replay**: Clients can request paced replay (`1x` or `10x` speed) for any finished match stored in Postgres. Replay frames are streamed privately to the requesting socket alone, rate-limited per connection (3s cooldown), and do not alter the global server data source.
+
+---
+
+## ⚙️ Docker Pause vs. Outage Resilience & Deduplication
+
+### Docker Pause Mechanics
+- During `docker pause`, the TCP socket between Node and Redis remains open and connected; the `ioredis` connection status remains `"ready"`.
+- Because the connection is ready, `ioredis` writes outgoing `PUBLISH` commands directly to the operating system's kernel TCP socket buffer, **not** to the client's internal offline queue.
+- When the container is unpaused (`docker unpause`), the Redis server resumes processing socket bytes and fans out the delayed publish commands across the cluster.
+- **Sequence Deduplication (`recentlyBroadcastSeq`)**:
+  - To prevent clients from receiving duplicate messages that were already delivered locally during degraded mode, each backend instance maintains a `recentlyBroadcastSeq` ring buffer.
+  - **Size Limit**: Bounded to **500 sequence numbers per match room**.
+  - **Expiry Policy**: Strict FIFO capacity eviction (the oldest sequence number in the room's set is evicted once 500 items are reached).
+  - When a message arrives from Redis pub/sub carrying a sequence number present in `recentlyBroadcastSeq`, the instance discards the message: **no duplicates observed in the pause test**.
+
+---
+
+## ⚠️ Known Limitations
+
+1. **Reaction Counters Network Partition Over-Counting**:
+   - Emoji reactions are synchronized atomically to Redis using `HINCRBY`.
+   - Each instance batches local reaction deltas and only clears a delta after its corresponding `HINCRBY` returns a successful response from Redis.
+   - **Limitation**: If Redis successfully executes `HINCRBY`, but the TCP connection is severed before the reply ACK reaches the Node server, the server will retain the delta and re-apply it upon reconnecting. This can cause the aggregate reaction counter in Redis to over-count by the unacknowledged delta amount in network partition scenarios.
+2. **Delivery Semantics Under Pause / Outage**:
+   - The platform provides at-least-once persistence with idempotent deduplication via match sequence tracking; no duplicates observed in the pause test across multiple instances.
 
 ---
 
