@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import http from 'http';
 import { WebSocket } from 'ws';
 import arcjet, { slidingWindow } from '@arcjet/node';
@@ -6,10 +6,15 @@ import {
     getClientIp,
     normalizeIp,
     isLocalhostIp,
+    isBenchmarkBypassEnabled,
+    isDebugIpEnabled,
     resolveArcjetMode,
     buildProtectOptions,
     sanitizeLogValue,
+    debugIpMiddleware,
     securityMiddleware,
+    getArcjetErrorStats,
+    resetArcjetErrorStats,
 } from '../src/arcjet.js';
 import { attachWebSocketServer } from '../src/ws/server.js';
 
@@ -38,6 +43,10 @@ function createMockRes() {
 }
 
 describe('Arcjet configuration, IP resolution, and decision logging', () => {
+    beforeEach(() => {
+        resetArcjetErrorStats();
+    });
+
     describe('resolveArcjetMode', () => {
         it('uses LIVE in production when ARCJET_ENV and ARCJET_MODE are unset', () => {
             expect(resolveArcjetMode({ NODE_ENV: 'production' })).toBe('LIVE');
@@ -514,6 +523,267 @@ describe('Arcjet configuration, IP resolution, and decision logging', () => {
             expect(ws.readyState).toBe(WebSocket.OPEN);
             expect(logger.error).toHaveBeenCalledTimes(1);
             expect(logger.error.mock.calls[0].join(' ')).toContain('ERROR decision');
+            const stats = getArcjetErrorStats();
+            expect(stats.count).toBe(1);
+            expect(typeof stats.lastErrorAt).toBe('string');
+        });
+
+        it('logs DEBUG_IP fields on WS upgrade when debugIp=true without leaking other headers', async () => {
+            const logger = createMockLogger();
+            const protect = vi.fn().mockResolvedValue({
+                id: 'req_ws_dbg_1',
+                conclusion: 'ALLOW',
+                isAllowed: () => true,
+                isDenied: () => false,
+                isErrored: () => false,
+                reason: { type: 'RATE_LIMIT', max: 30, remaining: 29, reset: 10, window: 10 },
+                results: [],
+            });
+
+            server = http.createServer();
+            handles = attachWebSocketServer(server, {
+                enableRedis: false,
+                wsArcjetClient: { protect },
+                trustProxy: true,
+                debugIp: true,
+                arcjetLogger: logger,
+            });
+            await new Promise((r) => server.listen(0, '127.0.0.1', r));
+            const port = server.address().port;
+
+            const ws = await new Promise((resolve, reject) => {
+                const client = new WebSocket(`ws://127.0.0.1:${port}/ws?secret=dontlog`, {
+                    headers: {
+                        'x-forwarded-for': '127.0.0.1, 198.51.100.72',
+                        'true-client-ip': '198.51.100.72',
+                        'x-real-ip': '198.51.100.72',
+                        authorization: 'Bearer top_secret_token',
+                        cookie: 'session=cookie_secret',
+                    },
+                });
+                sockets.add(client);
+                client.on('open', () => resolve(client));
+                client.on('error', reject);
+            });
+
+            expect(ws.readyState).toBe(WebSocket.OPEN);
+            expect(logger.info).toHaveBeenCalledTimes(1);
+            const logged = logger.info.mock.calls[0].join(' ');
+            expect(logged).toContain('[DEBUG_IP:ws]');
+            expect(logged).toContain('127.0.0.1, 198.51.100.72');
+            expect(logged).toContain('"trueClientIp":"198.51.100.72"');
+            expect(logged).toContain('"xRealIp":"198.51.100.72"');
+            expect(logged).toContain('"resolvedClientIp":"198.51.100.72"');
+            expect(logged).toContain('"remoteAddress":');
+            expect(logged).not.toContain('top_secret_token');
+            expect(logged).not.toContain('cookie_secret');
+            expect(logged).not.toContain('dontlog');
+        });
+    });
+
+    describe('BENCHMARK_BYPASS_ARCJET production guard', () => {
+        it('refuses BENCHMARK_BYPASS_ARCJET when NODE_ENV=production, logs loudly, and still protects requests', async () => {
+            const logger = createMockLogger();
+            const prodEnv = { NODE_ENV: 'production', BENCHMARK_BYPASS_ARCJET: '1' };
+
+            expect(isBenchmarkBypassEnabled(prodEnv, logger)).toBe(false);
+            expect(logger.error).toHaveBeenCalledTimes(1);
+            expect(logger.error.mock.calls[0][0]).toContain('BENCHMARK_BYPASS_ARCJET is refused');
+
+            expect(isLocalhostIp('198.51.100.55', prodEnv, logger)).toBe(false);
+
+            const protect = vi.fn().mockResolvedValue({
+                id: 'req_prod_bypass_refused',
+                conclusion: 'DENY',
+                isAllowed: () => false,
+                isDenied: () => true,
+                isErrored: () => false,
+                reason: { type: 'RATE_LIMIT', isRateLimit: () => true, max: 60, remaining: 0, reset: 10, window: 10 },
+                results: [],
+            });
+            const mw = securityMiddleware({
+                client: { protect },
+                trustProxy: true,
+                mode: 'LIVE',
+                devMode: false,
+                env: prodEnv,
+                logger,
+            });
+            const req = {
+                method: 'GET',
+                originalUrl: '/matches',
+                headers: { 'x-forwarded-for': '198.51.100.55' },
+                socket: { remoteAddress: '10.0.0.2' },
+            };
+            const res = createMockRes();
+            const next = vi.fn();
+
+            await mw(req, res, next);
+
+            expect(protect).toHaveBeenCalledTimes(1);
+            expect(res.statusCode).toBe(429);
+            expect(next).not.toHaveBeenCalled();
+        });
+
+        it('allows BENCHMARK_BYPASS_ARCJET outside production', () => {
+            const logger = createMockLogger();
+            const devEnv = { NODE_ENV: 'development', BENCHMARK_BYPASS_ARCJET: '1' };
+            expect(isBenchmarkBypassEnabled(devEnv, logger)).toBe(true);
+            expect(isLocalhostIp('198.51.100.55', devEnv, logger)).toBe(true);
+            expect(logger.error).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('DEBUG_IP logging (off by default)', () => {
+        it('is disabled by default and enabled only when DEBUG_IP=1 or true', () => {
+            expect(isDebugIpEnabled({})).toBe(false);
+            expect(isDebugIpEnabled({ DEBUG_IP: '0' })).toBe(false);
+            expect(isDebugIpEnabled({ DEBUG_IP: 'false' })).toBe(false);
+            expect(isDebugIpEnabled({ DEBUG_IP: '1' })).toBe(true);
+            expect(isDebugIpEnabled({ DEBUG_IP: 'true' })).toBe(true);
+        });
+
+        it('logs raw XFF, true-client-ip/x-real-ip, remoteAddress, and resolvedClientIp once per REST request with no secrets', async () => {
+            const logger = createMockLogger();
+            const dbgMw = debugIpMiddleware({ trustProxy: true, debugIp: true, logger });
+            const protect = vi.fn().mockResolvedValue({
+                id: 'req_dbg_http',
+                conclusion: 'ALLOW',
+                isAllowed: () => true,
+                isDenied: () => false,
+                isErrored: () => false,
+                reason: { type: 'RATE_LIMIT', max: 60, remaining: 59, reset: 10, window: 10 },
+                results: [],
+            });
+            const secMw = securityMiddleware({
+                client: { protect },
+                trustProxy: true,
+                debugIp: true,
+                mode: 'LIVE',
+                devMode: false,
+                logger,
+            });
+
+            const req = {
+                method: 'GET',
+                originalUrl: '/matches?token=my_query_secret',
+                headers: {
+                    'x-forwarded-for': '127.0.0.1, 198.51.100.90',
+                    'true-client-ip': '198.51.100.90',
+                    authorization: 'Bearer my_auth_secret',
+                    cookie: 'sid=my_cookie_secret',
+                    'x-api-key': 'my_api_secret',
+                },
+                socket: { remoteAddress: '10.0.0.2' },
+            };
+            const res = createMockRes();
+            const next1 = vi.fn();
+            const next2 = vi.fn();
+
+            dbgMw(req, res, next1);
+            await secMw(req, res, next2);
+
+            expect(next1).toHaveBeenCalledTimes(1);
+            expect(next2).toHaveBeenCalledTimes(1);
+            // Deduplicated: logged once even though both middlewares ran
+            expect(logger.info).toHaveBeenCalledTimes(1);
+            const logged = logger.info.mock.calls[0].join(' ');
+            expect(logged).toContain('[DEBUG_IP:http]');
+            expect(logged).toContain('"xForwardedFor":"127.0.0.1, 198.51.100.90"');
+            expect(logged).toContain('"trueClientIp":"198.51.100.90"');
+            expect(logged).toContain('"remoteAddress":"10.0.0.2"');
+            expect(logged).toContain('"resolvedClientIp":"198.51.100.90"');
+            expect(logged).not.toContain('xRealIp');
+            expect(logged).not.toContain('my_query_secret');
+            expect(logged).not.toContain('my_auth_secret');
+            expect(logged).not.toContain('my_cookie_secret');
+            expect(logged).not.toContain('my_api_secret');
+        });
+    });
+
+    describe('arcjetErrors health stats tracking', () => {
+        it('starts at zero and increments on ERROR decisions and thrown errors (not on ALLOW/DENY)', async () => {
+            expect(getArcjetErrorStats()).toEqual({ count: 0, lastErrorAt: null });
+
+            const logger = createMockLogger();
+            const req = {
+                method: 'GET',
+                originalUrl: '/matches',
+                headers: { 'x-forwarded-for': '198.51.100.91' },
+                socket: { remoteAddress: '10.0.0.2' },
+            };
+
+            // 1. ALLOW -> count stays 0
+            const allowMw = securityMiddleware({
+                client: {
+                    protect: vi.fn().mockResolvedValue({
+                        id: 'req_1',
+                        conclusion: 'ALLOW',
+                        isAllowed: () => true,
+                        isDenied: () => false,
+                        isErrored: () => false,
+                        results: [],
+                    }),
+                },
+                trustProxy: true,
+                logger,
+            });
+            await allowMw(req, createMockRes(), vi.fn());
+            expect(getArcjetErrorStats()).toEqual({ count: 0, lastErrorAt: null });
+
+            // 2. DENY -> count stays 0
+            const denyMw = securityMiddleware({
+                client: {
+                    protect: vi.fn().mockResolvedValue({
+                        id: 'req_2',
+                        conclusion: 'DENY',
+                        isAllowed: () => false,
+                        isDenied: () => true,
+                        isErrored: () => false,
+                        reason: { type: 'RATE_LIMIT', isRateLimit: () => true, max: 60, remaining: 0, reset: 10, window: 10 },
+                        results: [],
+                    }),
+                },
+                trustProxy: true,
+                logger,
+            });
+            await denyMw(req, createMockRes(), vi.fn());
+            expect(getArcjetErrorStats()).toEqual({ count: 0, lastErrorAt: null });
+
+            // 3. ERROR decision -> count becomes 1
+            const errDecMw = securityMiddleware({
+                client: {
+                    protect: vi.fn().mockResolvedValue({
+                        id: 'lreq_3',
+                        conclusion: 'ERROR',
+                        isAllowed: () => true,
+                        isDenied: () => false,
+                        isErrored: () => true,
+                        reason: { type: 'ERROR', message: 'timeout' },
+                        results: [],
+                    }),
+                },
+                trustProxy: true,
+                logger,
+            });
+            const nextOpen = vi.fn();
+            await errDecMw(req, createMockRes(), nextOpen);
+            expect(nextOpen).toHaveBeenCalledTimes(1);
+            const afterErr1 = getArcjetErrorStats();
+            expect(afterErr1.count).toBe(1);
+            expect(afterErr1.lastErrorAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+            // 4. Thrown exception -> count becomes 2
+            const throwMw = securityMiddleware({
+                client: { protect: vi.fn().mockRejectedValue(new Error('network reset')) },
+                trustProxy: true,
+                devMode: false,
+                logger,
+            });
+            await throwMw(req, createMockRes(), vi.fn());
+            const afterErr2 = getArcjetErrorStats();
+            expect(afterErr2.count).toBe(2);
+            expect(afterErr2.lastErrorAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
         });
     });
 });
