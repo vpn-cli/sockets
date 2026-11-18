@@ -109,7 +109,7 @@ export const useWebSocket = (
         try {
           const data = JSON.parse(event.data);
 
-          // Track seen sequences per match: drop true duplicates, but NEVER drop missed events due to out-of-order live events
+          // Track seen sequences per match: drop true duplicates, detect gaps, but NEVER drop missed events due to out-of-order live events
           if (data?.type === 'commentary' && data?.data) {
             const matchId = String(data.data.matchId || data.matchId);
             const seq = Number(data.data.sequence ?? data.data.seq);
@@ -127,22 +127,27 @@ export const useWebSocket = (
               seen.add(seq);
 
               const prevMax = lastSeenSeqByMatch.current.get(matchId) || 0;
+              if (prevMax > 0 && seq > prevMax + 1) {
+                // Gap detected! Client received seq N while it last saw seq < N-1.
+                // Request replay from last seen seq over the open socket without reconnecting.
+                if (socket.readyState === WebSocket.OPEN) {
+                  socket.send(JSON.stringify({
+                    type: 'replay',
+                    matchId: Number(matchId),
+                    lastSeq: prevMax,
+                  }));
+                }
+              }
+
               if (seq > prevMax) {
                 lastSeenSeqByMatch.current.set(matchId, seq);
               }
             }
           } else if (data?.type === 'replay_events' && Array.isArray(data?.events)) {
             const matchId = String(data.matchId);
-            let seen = seenSeqsByMatch.current.get(matchId);
-            if (!seen) {
-              seen = new Set();
-              seenSeqsByMatch.current.set(matchId, seen);
-            }
-
             for (const ev of data.events) {
               const seq = Number(ev.sequence ?? ev.seq);
               if (seq > 0) {
-                seen.add(seq);
                 const prevMax = lastSeenSeqByMatch.current.get(matchId) || 0;
                 if (seq > prevMax) {
                   lastSeenSeqByMatch.current.set(matchId, seq);

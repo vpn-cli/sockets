@@ -80,6 +80,10 @@ describe('Reconnect Replay & Sequence Recovery Tests', () => {
         subA = new Redis(REDIS_URL, redisOpts);
         pubB = new Redis(REDIS_URL, redisOpts);
         subB = new Redis(REDIS_URL, redisOpts);
+        pubA.on('error', () => {});
+        subA.on('error', () => {});
+        pubB.on('error', () => {});
+        subB.on('error', () => {});
 
         // 2. Insert test match in DB
         const [m] = await db.insert(matches).values({
@@ -384,4 +388,131 @@ describe('Reconnect Replay & Sequence Recovery Tests', () => {
         // Both replayed events (3, 4, 5) AND live event (6) arrived in order!
         expect(receivedSeqs).toEqual([3, 4, 5, 6]);
     }, 30000);
+
+    it('client gap detection: Redis fully stopped -> instance 2 client misses seq 2 -> seq 3 arrives after recovery -> recovers seq 2 without reconnecting', async () => {
+        const { execSync } = await import('child_process');
+
+        // 1. Client 1 on Instance A, Client 2 on Instance B
+        const client1 = await connectWs(wsUrlA);
+        const client2 = await connectWs(wsUrlB);
+        await awaitMessage(client1, 'welcome');
+        await awaitMessage(client2, 'welcome');
+
+        client1.send(JSON.stringify({ type: 'subscribe', matchId: testMatchId }));
+        client2.send(JSON.stringify({ type: 'subscribe', matchId: testMatchId }));
+        await awaitMessage(client1, 'subscribed');
+        await awaitMessage(client2, 'subscribed');
+        await awaitMessage(client1, 'reaction_snapshot');
+        await awaitMessage(client2, 'reaction_snapshot');
+
+        // Track received commentary messages on Client 2
+        const client2Received = [];
+        let client2LastSeenSeq = 0;
+        let gapDetectedAndRequested = false;
+
+        client2.on('message', (raw) => {
+            let msg;
+            try { msg = JSON.parse(raw.toString()); } catch { return; }
+            if (msg.type === 'commentary' && msg.data) {
+                const seq = msg.data.sequence || msg.data.seq;
+                client2Received.push(seq);
+
+                // Client-side gap detection: seq N received while lastSeen < N-1
+                if (client2LastSeenSeq > 0 && seq > client2LastSeenSeq + 1) {
+                    gapDetectedAndRequested = true;
+                    // Requests replay from last seen seq WITHOUT reconnecting
+                    client2.send(JSON.stringify({
+                        type: 'replay',
+                        matchId: testMatchId,
+                        lastSeq: client2LastSeenSeq,
+                    }));
+                }
+
+                if (seq > client2LastSeenSeq) {
+                    client2LastSeenSeq = seq;
+                }
+            }
+        });
+
+        // 2. Publish Seq 1 via Instance A: both clients receive seq 1
+        await ingestEvent({
+            matchId: testMatchId,
+            provider: 'test-gap',
+            providerEventId: `gap_1_${Date.now()}`,
+            minute: 10,
+            message: 'Seq 1 live event',
+        }, {
+            db,
+            broadcastCommentary: handlesA.broadcastCommentary,
+        });
+
+        // Wait for Client 2 to receive seq 1
+        await new Promise((r) => setTimeout(r, 400));
+        expect(client2Received).toContain(1);
+        expect(client2LastSeenSeq).toBe(1);
+
+        try {
+            // 3. Stop Redis fully (docker stop)
+            execSync('docker stop sportz-redis -t 1');
+            await new Promise((r) => setTimeout(r, 400));
+
+            // 4. Publish Seq 2 via Instance A while Redis is fully stopped
+            // Instance A logs degradation and broadcasts locally.
+            // Instance B receives NOTHING, so Client 2 misses seq 2!
+            await ingestEvent({
+                matchId: testMatchId,
+                provider: 'test-gap',
+                providerEventId: `gap_2_${Date.now()}`,
+                minute: 20,
+                message: 'Seq 2 event during Redis outage',
+            }, {
+                db,
+                broadcastCommentary: handlesA.broadcastCommentary,
+            });
+
+            await new Promise((r) => setTimeout(r, 400));
+            // Client 2 on Instance B missed seq 2!
+            expect(client2Received).not.toContain(2);
+            expect(client2LastSeenSeq).toBe(1);
+        } finally {
+            // 5. Recover Redis (docker start) - guaranteed recovery in finally block
+            execSync('docker start sportz-redis');
+        }
+
+        // Wait for ioredis clients on Instance A and Instance B to reconnect
+        let reconnected = false;
+        for (let i = 0; i < 40; i++) {
+            if (pubA.status === 'ready' && pubB.status === 'ready' && subA.status === 'ready' && subB.status === 'ready') {
+                reconnected = true;
+                break;
+            }
+            await new Promise((r) => setTimeout(r, 200));
+        }
+        expect(reconnected).toBe(true);
+        // Allow Redis subscription channels to re-bind
+        await new Promise((r) => setTimeout(r, 500));
+
+        // 6. Publish Seq 3 via Instance A after recovery
+        await ingestEvent({
+            matchId: testMatchId,
+            provider: 'test-gap',
+            providerEventId: `gap_3_${Date.now()}`,
+            minute: 30,
+            message: 'Seq 3 live event after Redis recovery',
+        }, {
+            db,
+            broadcastCommentary: handlesA.broadcastCommentary,
+        });
+
+        // Wait for Client 2 to receive seq 3 and trigger gap recovery
+        await new Promise((r) => setTimeout(r, 1200));
+
+        // 7. Verify Client 2 detected the gap and recovered seq 2 WITHOUT reconnecting
+        expect(client2.readyState).toBe(WebSocket.OPEN); // Connection stayed open!
+        expect(gapDetectedAndRequested).toBe(true);
+        expect(client2Received).toContain(3);
+        expect(client2Received).toContain(2); // Recovered seq 2 via replay!
+        // All sequences 1, 2, 3 were received by Client 2!
+        expect(new Set(client2Received)).toEqual(new Set([1, 2, 3]));
+    }, 45000);
 });

@@ -85,5 +85,50 @@ describe('useWebSocket message deduplication logic', () => {
         processMessage({ type: 'commentary', data: { matchId: 10, sequence: 1, message: 'Old event' } });
         expect(receivedMessages.length).toBe(2); // dropped!
     });
+
+    it('detects sequence gap (seq N while lastSeen < N-1) and emits replay request from lastSeenSeq', () => {
+        const replayRequests: any[] = [];
+        const seenSeqs = new Set<number>();
+        let lastSeenSeq = 0;
+
+        function handleCommentary(matchId: number, seq: number) {
+            if (seenSeqs.has(seq)) return;
+            seenSeqs.add(seq);
+
+            if (lastSeenSeq > 0 && seq > lastSeenSeq + 1) {
+                // Gap detected: request replay
+                replayRequests.push({
+                    type: 'replay',
+                    matchId,
+                    lastSeq: lastSeenSeq,
+                });
+            }
+
+            if (seq > lastSeenSeq) {
+                lastSeenSeq = seq;
+            }
+        }
+
+        // 1. Seq 1 arrives
+        handleCommentary(42, 1);
+        expect(replayRequests.length).toBe(0);
+        expect(lastSeenSeq).toBe(1);
+
+        // 2. Seq 3 arrives (missed seq 2 during network outage)
+        handleCommentary(42, 3);
+        expect(replayRequests.length).toBe(1);
+        expect(replayRequests[0]).toEqual({
+            type: 'replay',
+            matchId: 42,
+            lastSeq: 1,
+        });
+
+        // 3. Replayed seq 2 arrives in response without gap trigger
+        handleCommentary(42, 2);
+        expect(replayRequests.length).toBe(1); // no new gap request!
+        expect(seenSeqs.has(1)).toBe(true);
+        expect(seenSeqs.has(2)).toBe(true);
+        expect(seenSeqs.has(3)).toBe(true);
+    });
 });
 

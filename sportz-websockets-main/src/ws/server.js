@@ -383,6 +383,110 @@ export function attachWebSocketServer(server, {
         localBroadcastToMatch(matchId, stamped);
     }
 
+    async function performReplayGap(socket, matchId, lastSeq) {
+        if (lastSeq === null || lastSeq === undefined) return;
+
+        // Initialize replay queue for this socket & match so concurrent live events are held in order
+        socket.replayingMatches = socket.replayingMatches || new Map();
+        socket.replayingMatches.set(matchId, []);
+
+        let replayedEvents = null;
+        let isOversizedGap = false;
+
+        try {
+            // 1. Fetch from Postgres if configured
+            if (process.env.DATABASE_URL) {
+                try {
+                    const { db } = await import("../db/db.js");
+                    const { commentary, matches } = await import("../db/schema.js");
+                    const { eq, gt, asc, desc, and } = await import("drizzle-orm");
+
+                    // Fetch up to 201 events to detect if gap exceeds 200
+                    const rows = await db
+                        .select()
+                        .from(commentary)
+                        .where(and(eq(commentary.matchId, matchId), gt(commentary.sequence, lastSeq)))
+                        .orderBy(asc(commentary.sequence))
+                        .limit(201);
+
+                    if (rows.length > 200) {
+                        isOversizedGap = true;
+                        const [matchRow] = await db
+                            .select()
+                            .from(matches)
+                            .where(eq(matches.id, matchId))
+                            .limit(1);
+
+                        const recent = await db
+                            .select()
+                            .from(commentary)
+                            .where(eq(commentary.matchId, matchId))
+                            .orderBy(desc(commentary.sequence))
+                            .limit(50);
+
+                        sendJson(socket, {
+                            type: 'snapshot',
+                            matchId,
+                            reason: 'gap_exceeded',
+                            match: matchRow || null,
+                            recentCommentary: recent.reverse(),
+                        });
+                    } else {
+                        replayedEvents = rows;
+                    }
+                } catch (err) {
+                    console.warn(`[Replay] DB query skipped/failed for match ${matchId}:`, err.message);
+                }
+            }
+
+            // 2. Fallback to in-memory event buffer (for local/test mode without DB)
+            if (!isOversizedGap && replayedEvents === null) {
+                const buffer = matchEventBuffer.get(matchId) || [];
+                const filtered = buffer.filter((e) => (e.sequence || e.seq) > lastSeq);
+                const currentMax = buffer.length > 0 ? (buffer[buffer.length - 1].sequence || buffer[buffer.length - 1].seq) : lastSeq;
+
+                if (currentMax - lastSeq > 200) {
+                    sendJson(socket, {
+                        type: 'snapshot',
+                        matchId,
+                        reason: 'gap_exceeded',
+                        recentCommentary: buffer.slice(-50),
+                    });
+                    isOversizedGap = true;
+                } else {
+                    replayedEvents = filtered;
+                }
+            }
+
+            // 3. Deliver replayed events in order with no duplicates
+            if (!isOversizedGap && Array.isArray(replayedEvents) && replayedEvents.length > 0) {
+                sendJson(socket, {
+                    type: 'replay_events',
+                    matchId,
+                    events: replayedEvents,
+                    count: replayedEvents.length,
+                });
+
+                for (const ev of replayedEvents) {
+                    sendJson(socket, {
+                        type: 'commentary',
+                        data: ev,
+                        isReplay: true,
+                    });
+                }
+            }
+        } finally {
+            // 4. Flush any live events buffered while replay was in flight
+            if (socket.replayingMatches && socket.replayingMatches.has(matchId)) {
+                const queuedLive = socket.replayingMatches.get(matchId);
+                socket.replayingMatches.delete(matchId);
+                for (const liveMsg of queuedLive) {
+                    sendJson(socket, liveMsg);
+                }
+            }
+        }
+    }
+
     async function handleMessage(socket, data) {
         let message;
 
@@ -421,11 +525,6 @@ export function attachWebSocketServer(server, {
 
             subscribe(matchId, socket);
             socket.subscriptions.add(matchId);
-            if (lastSeq !== null) {
-                // Initialize replay queue for this socket & match so concurrent live events are held in order
-                socket.replayingMatches = socket.replayingMatches || new Map();
-                socket.replayingMatches.set(matchId, []);
-            }
 
             sendJson(socket, { type: 'subscribed', matchId });
 
@@ -446,103 +545,26 @@ export function attachWebSocketServer(server, {
 
             // Replay Missed Messages on Reconnect (seq > lastSeq)
             if (lastSeq !== null) {
-                let replayedEvents = null;
-                let isOversizedGap = false;
-
-                try {
-                    // 1. Fetch from Postgres if configured
-                    if (process.env.DATABASE_URL) {
-                        try {
-                            const { db } = await import("../db/db.js");
-                            const { commentary, matches } = await import("../db/schema.js");
-                            const { eq, gt, asc, desc, and } = await import("drizzle-orm");
-
-                            // Fetch up to 201 events to detect if gap exceeds 200
-                            const rows = await db
-                                .select()
-                                .from(commentary)
-                                .where(and(eq(commentary.matchId, matchId), gt(commentary.sequence, lastSeq)))
-                                .orderBy(asc(commentary.sequence))
-                                .limit(201);
-
-                            if (rows.length > 200) {
-                                isOversizedGap = true;
-                                const [matchRow] = await db
-                                    .select()
-                                    .from(matches)
-                                    .where(eq(matches.id, matchId))
-                                    .limit(1);
-
-                                const recent = await db
-                                    .select()
-                                    .from(commentary)
-                                    .where(eq(commentary.matchId, matchId))
-                                    .orderBy(desc(commentary.sequence))
-                                    .limit(50);
-
-                                sendJson(socket, {
-                                    type: 'snapshot',
-                                    matchId,
-                                    reason: 'gap_exceeded',
-                                    match: matchRow || null,
-                                    recentCommentary: recent.reverse(),
-                                });
-                            } else {
-                                replayedEvents = rows;
-                            }
-                        } catch (err) {
-                            console.warn(`[Replay] DB query skipped/failed for match ${matchId}:`, err.message);
-                        }
-                    }
-
-                    // 2. Fallback to in-memory event buffer (for local/test mode without DB)
-                    if (!isOversizedGap && replayedEvents === null) {
-                        const buffer = matchEventBuffer.get(matchId) || [];
-                        const filtered = buffer.filter((e) => (e.sequence || e.seq) > lastSeq);
-                        const currentMax = buffer.length > 0 ? (buffer[buffer.length - 1].sequence || buffer[buffer.length - 1].seq) : lastSeq;
-
-                        if (currentMax - lastSeq > 200) {
-                            sendJson(socket, {
-                                type: 'snapshot',
-                                matchId,
-                                reason: 'gap_exceeded',
-                                recentCommentary: buffer.slice(-50),
-                            });
-                            isOversizedGap = true;
-                        } else {
-                            replayedEvents = filtered;
-                        }
-                    }
-
-                    // 3. Deliver replayed events in order with no duplicates
-                    if (!isOversizedGap && Array.isArray(replayedEvents) && replayedEvents.length > 0) {
-                        sendJson(socket, {
-                            type: 'replay_events',
-                            matchId,
-                            events: replayedEvents,
-                            count: replayedEvents.length,
-                        });
-
-                        for (const ev of replayedEvents) {
-                            sendJson(socket, {
-                                type: 'commentary',
-                                data: ev,
-                                isReplay: true,
-                            });
-                        }
-                    }
-                } finally {
-                    // 4. Flush any live events buffered while replay was in flight
-                    if (socket.replayingMatches && socket.replayingMatches.has(matchId)) {
-                        const queuedLive = socket.replayingMatches.get(matchId);
-                        socket.replayingMatches.delete(matchId);
-                        for (const liveMsg of queuedLive) {
-                            sendJson(socket, liveMsg);
-                        }
-                    }
-                }
+                await performReplayGap(socket, matchId, lastSeq);
             }
 
+            return;
+        }
+
+        if (message?.type === "replay") {
+            const matchId = parsePositiveInteger(message?.matchId);
+            if (matchId === null) {
+                sendJson(socket, { type: 'error', message: 'Invalid matchId' });
+                return;
+            }
+
+            const lastSeq = typeof message?.lastSeq === 'number' && Number.isInteger(message.lastSeq) && message.lastSeq >= 0
+                ? message.lastSeq
+                : null;
+
+            if (lastSeq !== null) {
+                await performReplayGap(socket, matchId, lastSeq);
+            }
             return;
         }
 
